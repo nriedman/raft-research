@@ -1,6 +1,6 @@
 # Raft Consensus Algorithm in C
 
-A basic, practical implementation of the Raft consensus algorithm in C. This project demonstrates leader election and log replication across multiple nodes using a local pipe-based orchestrator.
+A basic, practical implementation of the Raft consensus algorithm in C. This project was built as part of a research project examining the effects of different election timeout schemes on system availability.
 
 ## Overview
 
