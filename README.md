@@ -55,3 +55,15 @@ To remove compiled objects and executables:
 ```bash
 make clean
 ```
+
+## Acknowledgments
+
+This codebase was developed as part of the final projects for CS140e (Operating systems design and implementation) and CS244c (Advanced Networking and Distributed Systems).
+
+AI tools (Gemini CLI, Copilot) were used to develop the following componenets:
+
+- `README.md` description to introduce project and describe usage;
+- Extend debug messages for higher fidelity runtime logging;
+- Compose the Makefile for ease of compilation over changing codebase structure.
+
+Where applicable, inline comments document attributions for code that came from an external source.
