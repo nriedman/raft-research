@@ -1,0 +1,10 @@
+
+# Ignore compilation artifacts
+objs/*
+
+# Ignore executables (files without an extension, except for MakeFile)
+*
+!*.*
+!MakeFile
+!*/
+
