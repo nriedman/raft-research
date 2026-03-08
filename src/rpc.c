@@ -2,6 +2,8 @@
 #include "rpc.h"
 #include "transport.h"
 
+// MARK: Append Entries
+
 /*
     Offset | Field           | Size
     -------|-----------------|------
@@ -113,6 +115,8 @@ int rpc_unpack_append_entries_res(const pkt_t *pkt, append_entries_res_t *res) {
     return 0;
 }
 
+// MARK: Request Vote
+
 /*
     Offset | Field           | Size
     -------|-----------------|------
@@ -189,6 +193,76 @@ int rpc_unpack_request_vote_res(const pkt_t *pkt, request_vote_res_t *res) {
 
     res->term = read_u32_be(p); p += 4;
     res->vote_granted = *p; p++;
+
+    return 0;
+}
+
+// MARK: Process Client Request
+
+/*
+    Offset | Field           | Size
+    -------|-----------------|------
+    0      | cmd             | 4 bytes
+*/
+
+int rpc_pack_proc_req(pkt_t *pkt, uint32_t dst, uint32_t src, const proc_req_t *req) {
+    pkt->header.dst = dst;
+    pkt->header.src = src;
+    pkt->header.code = RPC_CALL_PROC;
+
+    uint8_t *p = pkt->payload;
+    write_u32_be(p, req->cmd); p += 4;
+    
+    pkt->header.payload_n = p - pkt->payload;
+
+    if (pkt->header.payload_n > MAX_PAYLOAD)
+        return -1;
+
+    return 0;
+}
+
+int rpc_unpack_proc_req(const pkt_t *pkt, proc_req_t *req) {
+    const uint8_t *p = pkt->payload;
+
+    uint32_t expected_size = 4;
+    if (pkt->header.payload_n < expected_size)
+        return -1;
+
+    req->cmd = read_u32_be(p); p += 4;
+
+    return 0;
+}
+
+/*
+    Offset | Field           | Size
+    -------|-----------------|------
+    0      | success         | 1 byte
+*/
+
+int rpc_pack_proc_res(pkt_t *pkt, uint32_t dst, uint32_t src, const proc_res_t *res) {
+    pkt->header.dst = dst;
+    pkt->header.src = src;
+    pkt->header.code = RPC_RESP_PROC;
+
+    uint8_t *p = pkt->payload;
+    *p = res->success; p++;
+    
+    pkt->header.payload_n = p - pkt->payload;
+
+    if (pkt->header.payload_n > MAX_PAYLOAD)
+        return -1;
+
+    return 0;
+}
+
+int rpc_unpack_proc_res(const pkt_t *pkt, proc_res_t *res) {
+    const uint8_t *p = pkt->payload;
+
+    uint32_t expected_size = 1;
+    if (pkt->header.payload_n < expected_size)
+        return -1;
+
+    res->success = *p; p++;
 
     return 0;
 }

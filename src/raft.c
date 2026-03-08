@@ -173,7 +173,7 @@ static void handle_request_vote_request(raft_node_t *node, const request_vote_re
     fprintf(stderr, "[Node %d] Handle RequestVote from Node %d (term %d, last_idx %d, last_term %d)\n",
             node->id, req.candidate_id, req.term, req.last_log_idx, req.last_log_term);
 
-    if (req.term < node->current_term) {
+    if (req.term < node->current_term ) {
         fprintf(stderr, "[Node %d] Rejecting vote: term %d < %d\n", node->id, req.term, node->current_term);
         send_request_vote_response(node, req.candidate_id, node->current_term, 0);
         return;
