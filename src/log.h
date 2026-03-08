@@ -12,3 +12,5 @@ typedef struct {
 uint8_t* log_entry_pack(uint8_t *buf, const log_entry_t *entry);
 const uint8_t* log_entry_unpack(const uint8_t *buf, log_entry_t *entry);
 uint32_t log_entry_packed_size(void);
+
+int apply_log_entries_to_sm(log_entry_t *entry, int n, void *ctx);

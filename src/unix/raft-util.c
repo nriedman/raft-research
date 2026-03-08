@@ -18,6 +18,7 @@ raft_node_t *raft_create(uint32_t node_id, uint32_t num_nodes, transport_t trans
     nd->role = FOLLOWER;
     nd->transport = transport;
     nd->current_term = 0;
+    nd->leader_id = NO_LEADER;
     nd->has_voted = 0;
     nd->voted_for = 0;
     nd->log_size = 1;   // see note above

@@ -6,9 +6,11 @@
 #include "transport.h"
 #include <stdint.h>
 
-#define HEARTBEAT_INTERVAL_USEC     50000   // 50 ms
-#define ELECTION_INTERVAL_MIN_USEC  150000  // 150 ms
-#define ELECTION_INTERVAL_MAX_USEC  300000  // 300 ms
+#define HEARTBEAT_INTERVAL_USEC     50000       // 50 ms
+#define ELECTION_INTERVAL_MIN_USEC  150000      // 150 ms
+#define ELECTION_INTERVAL_MAX_USEC  300000      // 300 ms
+
+#define NO_LEADER                   UINT32_MAX  // index stored when no leader known
 
 typedef enum {
     FOLLOWER,
@@ -26,6 +28,9 @@ typedef struct {
     uint32_t current_term;          // latest term server has seen (init 0).
     int has_voted;                  // <hasVoted> is 0 when node hasn't yet voted in current term and 1 otherwise.
     uint32_t voted_for;             // <votedFor> only has a meaningful value if <hasVoted> is not 0.
+
+    // follower only - id of leader if known, NO_LEADER otherwise
+    uint32_t leader_id;
 
     // candidate only - for elections
     uint32_t votes_received;
