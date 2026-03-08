@@ -58,6 +58,20 @@ static void send_request_vote_response(raft_node_t *node, uint32_t dst, uint32_t
     node->transport.send(&pkt, node->transport.context);
 }
 
+static void send_proc_request(raft_node_t *node, uint32_t dst, const proc_req_t *req) {
+    fprintf(stderr, "[Node %d] Sending proc request to Node %d\n", node->id, dst);
+    pkt_t pkt;
+    rpc_pack_proc_req(&pkt, dst, node->id, req);
+    node->transport.send(&pkt, node->transport.context);
+}
+
+static void send_proc_response(raft_node_t *node, uint32_t dst, const proc_res_t *resp) {
+    fprintf(stderr, "[Node %d] Sending proc response to Node %d\n", node->id, dst);
+    pkt_t pkt;
+    rpc_pack_proc_res(&pkt, dst, node->id, resp);
+    node->transport.send(&pkt, node->transport.context);
+}
+
 static void broadcast_request_vote(raft_node_t *node) {
     request_vote_req_t req = {
         .term = node->current_term,
