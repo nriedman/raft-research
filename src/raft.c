@@ -130,7 +130,23 @@ static void send_heartbeats(raft_node_t *node) {
     }
 
     fprintf(stderr, "[Node %d] Sending heartbeat\n", node->id);
-    broadcast_append_entries(node, NULL, 0);
+
+    for (int i = 0; i < node->num_nodes; i++) {
+        if (i == node->id)
+            continue;
+
+        // empty 
+        append_entries_req_t req = {
+            .term = node->current_term,
+            .leader_id = node->id,
+            .leader_commit = node->commit_index,
+            .prev_log_idx = node->next_index[i] - 1,
+            .prev_log_term = raft_get_log_term(node, node->next_index[i] - 1),
+            .n_entries = 0
+        };
+
+        send_append_entries_request(node, i, &req);
+    }
 }
 
 // MARK: RPC Handlers
@@ -181,7 +197,10 @@ static void handle_append_entires_request(raft_node_t *node, append_entries_req_
         apply_log_entries_to_sm(&node->log[old_commit_index], (node->commit_index - old_commit_index), (void *)&node->id);
     }
 
-    send_append_entries_response(node, req.leader_id, node->current_term, 1);
+    // no need to reply to heartbeats
+    if (req.n_entries > 0) {
+        send_append_entries_response(node, req.leader_id, node->current_term, 1);
+    }
 }
 
 static void handle_append_entries_response(raft_node_t *node, uint32_t src_id, append_entries_res_t resp) {
@@ -198,10 +217,15 @@ static void handle_append_entries_response(raft_node_t *node, uint32_t src_id, a
     if (resp.success) {
         // Heartbeats (n_entries=0) don't necessarily need to update these,
         // but for now let's just use it to track replication.
+
+        // TODO: track how many followers have responded, and once a quorum
+        //       is reached, apply to state machine and reply to client.
     } else {
         if (node->next_index[src_id] > 1) {
             node->next_index[src_id]--;
             fprintf(stderr, "[Node %d] Decrementing next_index for Node %d to %d\n", node->id, src_id, node->next_index[src_id]);
+
+            // TODO: resend the append entries request
         }
     }
 }
@@ -380,7 +404,7 @@ static void become_leader(raft_node_t *node) {
     // init next_idx and match_idx
     for (unsigned i = 0; i < node->num_nodes; i++) {
         node->next_index[i] = node->log_size;
-        node->match_index[i] = 0;   // q: should this be one because logs are inited non-empty?
+        node->match_index[i] = 0;
     }
 
     set_heartbeat_timer(node);

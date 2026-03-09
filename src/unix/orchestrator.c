@@ -56,7 +56,7 @@ static void shutdown_all_nodes(int pipe_to_node[][2], const int N) {
 }
 
 // Forward messages between nodes, and signal when to terminate processes.
-// TODO: don't pass in READ_END of pipe_to_node or WRITE_END of pipe_from_node.
+// NICE TO HAVE: don't pass in READ_END of pipe_to_node or WRITE_END of pipe_from_node.
 static void orchestra_loop(int pipe_to_node[][2], int pipe_from_node[][2], const int N) {
     // instantiate <fd_set> for fast reset after <select>
     fd_set main_tx_set;
@@ -76,7 +76,7 @@ static void orchestra_loop(int pipe_to_node[][2], int pipe_from_node[][2], const
 
         // wait for tx events (only need to watch <pipe_from_node>)
         struct timeval timeout;
-        timeout.tv_sec = 6;     // MARK: TODO: have an actual end condition
+        timeout.tv_sec = 6;     // TODO: have an actual end condition
 
         fd_set tx_set = main_tx_set;
         int ret = select(FD_SETSIZE, &tx_set, NULL, NULL, &timeout);
