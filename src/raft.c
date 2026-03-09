@@ -109,6 +109,8 @@ static void broadcast_append_entries(raft_node_t *node, log_entry_t *entries, in
         .n_entries = n_entries
     };
 
+    // TODO: Make this stateless, and send entries from <next_index[i]> to end of leader log.
+
     for (int i = 0; i < n_entries; i++) {
         req.entries[i] = entries[i];
     }
