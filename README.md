@@ -60,10 +60,15 @@ make clean
 
 This codebase was developed as part of the final projects for CS140e (Operating systems design and implementation) and CS244c (Advanced Networking and Distributed Systems).
 
-AI tools (Gemini CLI, Copilot) were used to develop the following componenets:
+The following online resources were incredibly valuable as guides for how to safely develop Raft:
+
+- Project descriptions for [Project 1](https://web.stanford.edu/~ouster/cgi-bin/cs190-winter20/raft1.php) and [Project 2](https://web.stanford.edu/~ouster/cgi-bin/cs190-winter20/raft2.php) in Prof John Ousterhout's Winter 2020 CS190 (Software Design Studio);
+- An MIT distributed systems class [writeup](https://thesquareplanet.com/blog/students-guide-to-raft/) sharing tips and tricks based on past experience.
+
+Additionally, AI tools (Gemini CLI, Copilot) were used to develop the following componenets:
 
 - `README.md` description to introduce project and describe usage;
 - Extend debug messages for higher fidelity runtime logging;
 - Compose the Makefile for ease of compilation over changing codebase structure.
 
-Where applicable, inline comments document attributions for code that came from an external source.
+Where applicable, inline comments document attributions for code that came from external sources not discussed here.
