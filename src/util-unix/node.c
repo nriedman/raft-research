@@ -1,6 +1,5 @@
 #include "../raft.h"
 #include "../transport.h"
-#include "../transport-pipe/transport-pipe.h"
 
 #include <stdio.h>
 #include <unistd.h>
@@ -17,7 +16,7 @@ int main(int argc, char **argv) {
         .num_nodes = atoi(argv[2])
     };
 
-    transport_t transport = transport_pipe_create(STDIN_FILENO, STDOUT_FILENO);
+    transport_t transport = transport_init();
     log_t log = log_init();
     persistent_fields_t pf = persistent_fields_init();
 
@@ -29,5 +28,5 @@ int main(int argc, char **argv) {
     raft_run(node);
 
     raft_destroy(node);
-    transport_pipe_destroy(&transport);
+    transport_free(&transport);
 }

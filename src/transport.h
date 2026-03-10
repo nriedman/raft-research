@@ -27,3 +27,6 @@ typedef struct {
     rx_fn_t receive;
     void *context;
 } transport_t;
+
+transport_t transport_init(void);
+void transport_free(transport_t *t);

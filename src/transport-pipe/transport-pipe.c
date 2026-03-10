@@ -1,12 +1,17 @@
 // transport functions for Unix -- using pipes
 
-#include "transport-pipe.h"
+#include "../transport.h"
 
 #include <stdio.h>
 
 #include <unistd.h>
 #include <stdlib.h>
 #include <sys/select.h>
+
+typedef struct {
+    int read_fd;
+    int write_fd;
+} pipe_context_t;
 
 static int pipe_send(const pkt_t *pkt, void *ctx) {
     pipe_context_t *pctx = (pipe_context_t *)ctx;
@@ -56,7 +61,7 @@ static int pipe_receive(const pkt_t *pkt, const uint32_t timeout_ms, void *ctx) 
     return (n == bytes_to_read) ? 1 : -1;
 }
 
-transport_t transport_pipe_create(int read_fd, int write_fd) {
+static transport_t transport_pipe_create(int read_fd, int write_fd) {
     pipe_context_t *ctx = malloc(sizeof(pipe_context_t));
 
     ctx->read_fd = read_fd;
@@ -71,11 +76,18 @@ transport_t transport_pipe_create(int read_fd, int write_fd) {
     return transport;
 }
 
-void transport_pipe_destroy(transport_t *transport) {
+static void transport_pipe_destroy(transport_t *transport) {
     if (transport->context) {
         free(transport->context);
         transport->context = NULL;
     }
     // not bothering to free fildes in context... for now using stdin/stdout
+}
 
+transport_t transport_init(void) {
+    return transport_pipe_create(STDIN_FILENO, STDOUT_FILENO);
+}
+
+void transport_free(transport_t *t) {
+    transport_pipe_destroy(t);
 }
