@@ -1,5 +1,7 @@
 #include "../raft.h"
 #include <stdlib.h>
+#include <stdio.h>
+#include <unistd.h>
 
 raft_node_t *raft_create(
     raft_config_t config, 
