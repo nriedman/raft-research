@@ -34,8 +34,7 @@ raft_node_t *raft_create(
 
     nd->hard_state = pf;
     nd->hard_state.set(PF_CURRENT_TERM, 0, nd->hard_state.context);
-    nd->hard_state.set(PF_HAS_VOTED, 0, nd->hard_state.context);
-    nd->hard_state.set(PF_VOTED_FOR, 0, nd->hard_state.context);
+    nd->hard_state.set(PF_VOTED_FOR, PF_NO_VOTE_V, nd->hard_state.context);
 
     nd->commit_index = 0;
     nd->last_applied = 0;

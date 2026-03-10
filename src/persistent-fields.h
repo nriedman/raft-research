@@ -2,10 +2,11 @@
 
 #include "stdint.h"
 
+#define PF_NO_VOTE_V    INT32_MAX   // Value of PF_VOTED_FOR field when node hasn't yet voted
+
 typedef enum {
     PF_CURRENT_TERM = 0,        // latest term server has seen (init 0).
-    PF_HAS_VOTED = 1,           // <hasVoted> is 0 when node hasn't yet voted in current term and 1 otherwise.
-    PF_VOTED_FOR = 2            // <votedFor> only has a meaningful value if <hasVoted> is not 0.
+    PF_VOTED_FOR = 1            // <votedFor> only has a meaningful value if <hasVoted> is not 0.
 } persistent_field_t;
 
 // Synchronously writes a new value <v> to the specified field <f> in persisted memory.
