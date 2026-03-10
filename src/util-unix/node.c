@@ -12,13 +12,18 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    uint32_t node_id = atoi(argv[1]);
-    uint32_t num_nodes = atoi(argv[2]);
+    raft_config_t config = {
+        .id = atoi(argv[1]),
+        .num_nodes = atoi(argv[2])
+    };
 
     transport_t transport = transport_pipe_create(STDIN_FILENO, STDOUT_FILENO);
-    raft_node_t *node = raft_create(node_id, num_nodes, transport);
+    log_t log = log_init();
+    persistent_fields_t pf = persistent_fields_init();
 
-    fprintf(stderr, "[Node %d] Starting...\n", node->id);
+    raft_node_t *node = raft_create(config, transport, log, pf);
+
+    fprintf(stderr, "[Node %d] Starting...\n", node->config.id);
 
     // blocks until done running
     raft_run(node);

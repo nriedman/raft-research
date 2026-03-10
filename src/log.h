@@ -1,49 +1,58 @@
 #pragma once
 
-#include <stdint.h>
+// Error codes that log functions may return.
+enum {
+    EOBND = -51,        // an index was out of bounds
+    EINIT = -52         // log methods called before init
+};
 
-#define MAX_LOG_LEN 1024
-
-typedef struct {
-    uint32_t term;
-    uint32_t client_id;
-    uint32_t cmd_seqno;
-    uint32_t cmd;
-} log_entry_t;
-
-uint8_t* log_entry_pack(uint8_t *buf, const log_entry_t *entry);
-const uint8_t* log_entry_unpack(const uint8_t *buf, log_entry_t *entry);
-uint32_t log_entry_packed_size(void);
+// Synchronously read at most <n> bytes of the log entry at index <idx> from persistent
+// storage.
+// 
+// Returns number of bytes read into <entry> on success,
+// or a code <0 on error (see <log.h>).
+typedef int (*log_read_entry_t)(int idx, void *entry, int n, void *ctx);
 
 // Synchronously write a given log entry to persistent storage at index <idx>.
 //
 // If <idx> is equal to the current log length, the entry is appended to the log
 // and the log length is incremented.
 //
-// Returns 0 on success, -1 on error.
+// Returns 0 on success, or a code <0 on error (see <log.h>).
 typedef int (*log_write_entry_t)(int idx, void *entry, int n, void *ctx);
 
-// Synchronously read at most <n> bytes of the log entry at index <idx> from persistent
-// storage.
-// 
-// Returns number of bytes read into <entry> on success, -1 on error.
-typedef int (*log_read_entry_t)(int idx, void *entry, int n, void *ctx);
+// Returns the size of the <idx>'th log entry in bytes,
+// or a code <0 on error (see <log.h>).
+typedef int (*log_entry_size_t)(int idx, void *ctx);
 
-// Returns the size of the <idx>'th log entry in bytes, or -1 on error.
-typedef int (*log_entry_size_t)(int idx);
+// Returns the index of the first element in the log,
+// or a code <0 on error (see <log.h>).
+typedef int (*log_start_index_t)(void *ctx);
 
-// Returns the index of the first element in the log, or -1 on error.
-typedef int (*log_start_t)(void);
+// Returns the index of the last element in the log,
+// or a code <0 on error (see <log.h>).
+typedef int (*log_end_index_t)(void *ctx);
 
-// Returns the index of the last element in the log, or -1 on error.
-typedef int (*log_end_t)(void);
+// Returns the number of entries stored in the log,
+// or a code <0 on error (see <log.h).
+typedef int (*log_length_t)(void *ctx);
+
+// Truncates the log by removing the last <n> entries.
+//
+// Will not remove more entries than there are in the log.
+//
+// Returns number of entries removed on success,
+// or a code <0 on error (see <log.h).
+typedef int (*log_remove_last_n_t)(int n, void *ctx);
 
 typedef struct {
     log_read_entry_t read;
     log_write_entry_t write;
     log_entry_size_t entry_size;
-    log_start_t start;
-    log_end_t end;
+    log_start_index_t start_index;
+    log_end_index_t end_index;
+    log_length_t length;
+    log_remove_last_n_t remove_last_n;
     void *context;
 } log_t;
 

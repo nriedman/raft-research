@@ -1,7 +1,7 @@
 #pragma once
 
 #include "transport.h"
-#include "log.h"
+#include "log-entry.h"
 
 #define MAX_APPEND_ENTRIES_N 8
 
