@@ -67,12 +67,17 @@ static void orchestra_loop(int pipe_to_node[][2], int pipe_from_node[][2], const
     }
 
     uint32_t cnt = 0;
-    uint32_t max_msgs = 100;
+    uint32_t max_msgs = 3;
 
     while (orchestrator_running) {
         cnt++;
         if (cnt >= max_msgs)
             break;
+
+        // TODO: this is temporary to slow down the process
+        sleep(1);
+
+        fprintf(stderr, "-------------<%d>------------\n", cnt);
 
         // wait for tx events (only need to watch <pipe_from_node>)
         struct timeval timeout;
