@@ -30,7 +30,27 @@ To compile the `raft-node` and `raft-client`, run:
 make
 ```
 
-### Running the Cluster
+### Running a Cluster
+
+To start a cluster, you first need to know the IP Address and Port (`<ip:port>`) of each node. Then, a Node `<n>` can be started by executing the following command:
+
+```bash
+./raft-node --id <n> --peers <ip:port>,<ip:port>,...,<ip:port>
+```
+
+Here, `<n>` serves as the id of the node being started, and, if there are `N` nodes, `0 <= n < N`. There must also be `N` peer `<ip:port>` addresses provided in `--peers`.
+
+To stop execution of a given node, use `ctrl-c`. A node can be restarted at any time after stopping by using the same command as above.
+
+The command for sending a client request to the cluster is similar:
+
+```bash
+./raft-client <cmd> <ip:port>,<ip:port>,...,<ip:port>
+```
+
+The list of addresses provided must be the same as above, in the same order. The client will request the given 4-byte, unsigned integer `<cmd>` be appended to the Raft log, and wait for a reply.
+
+### Example: Local Cluster
 
 To run a cluster of 3 nodes on your local machine, open three separate terminals and execute the following commands:
 
@@ -59,7 +79,7 @@ To send a command (e.g., the value `42`) to the cluster:
 ./raft-client 42 127.0.0.1:8000,127.0.0.1:8001,127.0.0.1:8002
 ```
 
-The client will attempt to contact a node, follow leader hints if necessary, and report if the command was successfully committed.
+The client will attempt to contact a random node, follow leader hints if necessary, and report if the command was successfully committed.
 
 ## Project Structure
 
