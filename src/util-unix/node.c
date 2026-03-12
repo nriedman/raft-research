@@ -5,7 +5,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include <signal.h>
 
 /*
     Usage:
@@ -34,11 +33,7 @@ int main(int argc, char **argv) {
     uint32_t id = 0;
     char *peers_str = NULL;
     
-    // Seed the random number generator before anything else
     srand(time(NULL) ^ getpid());
-
-    // Ignore SIGPIPE to prevent crashing when a peer closes a connection
-    signal(SIGPIPE, SIG_IGN);
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--id") == 0 && i + 1 < argc) {

@@ -68,8 +68,10 @@ static int connect_to_peer(socket_context_t *sctx, uint32_t node_id) {
     
     set_nonblocking(fd);
     
+    fprintf(stderr, "[Node %u] Connecting to Node %u at %s\n", sctx->my_id, node_id, sctx->peer_addrs[node_id]);
     if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
         if (errno != EINPROGRESS) {
+            perror("connect");
             close(fd);
             return -1;
         }
@@ -98,11 +100,62 @@ static int socket_send(const pkt_t *pkt, void *ctx) {
     
     if (fd == -1) return -1;
     
+    fd_set rfds, wfds;
+    struct timeval tv;
+    int max_fd;
+    
+    FD_ZERO(&rfds);
+    FD_ZERO(&wfds);
+    FD_SET(fd, &wfds);
+    FD_SET(sctx->listen_fd, &rfds);
+    max_fd = (fd > sctx->listen_fd) ? fd : sctx->listen_fd;
+    
+    tv.tv_sec = 0;
+    tv.tv_usec = 100000; // 100ms wait
+    
+    int ret = select(max_fd + 1, &rfds, &wfds, NULL, &tv);
+    if (ret > 0) {
+        if (FD_ISSET(sctx->listen_fd, &rfds)) {
+            int new_fd = accept(sctx->listen_fd, NULL, NULL);
+            if (new_fd >= 0) {
+                set_nonblocking(new_fd);
+                if (sctx->num_active < MAX_CONNECTIONS) {
+                    sctx->active_fds[sctx->num_active++] = new_fd;
+                } else {
+                    close(new_fd);
+                }
+            }
+        }
+        if (!FD_ISSET(fd, &wfds)) {
+            return -1; 
+        }
+    } else if (ret == 0) {
+        return -1; 
+    } else {
+        if (errno == EINTR) return -1;
+        perror("select in socket_send");
+        return -1;
+    }
+    
+    int error = 0;
+    socklen_t len = sizeof(error);
+    if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &error, &len) < 0 || error != 0) {
+        if (error != 0) errno = error;
+        perror("socket error in socket_send");
+        close(fd);
+        remove_active_fd(sctx, fd);
+        if (dst < sctx->num_nodes) sctx->peer_fds[dst] = -1;
+        else sctx->client_fds[dst % MAX_CONNECTIONS] = -1;
+        return -1;
+    }
+
+    fprintf(stderr, "[Node %u] Sending pkt to %u, code %u, size %zu\n", sctx->my_id, dst, pkt->header.code, sizeof(*pkt));
     ssize_t n = send(fd, pkt, sizeof(*pkt), 0);
     if (n != (ssize_t)sizeof(*pkt)) {
         if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINPROGRESS)) {
-            return 0;
+            return -1;
         }
+        perror("send");
         close(fd);
         remove_active_fd(sctx, fd);
         if (dst < sctx->num_nodes) sctx->peer_fds[dst] = -1;
@@ -142,6 +195,7 @@ static int socket_receive(const pkt_t *pkt, const uint32_t timeout_ms, void *ctx
         if (ret == 0) return 0;
         if (ret < 0) {
             if (errno == EINTR) continue;
+            perror("select in socket_receive");
             return -1;
         }
         
