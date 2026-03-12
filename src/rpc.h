@@ -23,7 +23,7 @@ typedef struct {
     uint32_t prev_log_idx;
     uint32_t prev_log_term;
 
-    uint32_t leader_commit;
+    int leader_commit;
 
     uint32_t n_entries;
     log_entry_t entries[MAX_APPEND_ENTRIES_N];
@@ -31,6 +31,7 @@ typedef struct {
 
 typedef struct {
     uint32_t term;
+    uint32_t new_match_index;
     uint8_t success;
 } append_entries_res_t;
 

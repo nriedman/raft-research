@@ -20,7 +20,7 @@ typedef struct {
 typedef int (*tx_fn_t)(const pkt_t*, void *ctx);
 
 // returns 0 on timeout, 1 on success, -1 on error
-typedef int (*rx_fn_t)(const pkt_t*, const uint32_t timeout_ms, void *ctx);
+typedef int (*rx_fn_t)(pkt_t*, const uint32_t timeout_ms, void *ctx);
 
 typedef struct {
     tx_fn_t send;

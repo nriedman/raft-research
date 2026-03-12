@@ -35,6 +35,6 @@ objs/%.o: src/%.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
-	rm -rf objs raft-node raft-client *.log* *.state *.out
+	rm -rf objs raft-node raft-client *.log* *.state *.out *.dSYM
 
 .PHONY: all clean

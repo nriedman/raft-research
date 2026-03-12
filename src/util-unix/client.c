@@ -23,7 +23,7 @@ int main(int argc, char **argv) {
     uint32_t num_peers = 0;
     char *token = strtok(peers_str, ",");
     while (token && num_peers < 16) {
-        peers[num_peers++] = token;
+        peers[num_peers++] = strdup(token);
         token = strtok(NULL, ",");
     }
 
@@ -48,10 +48,14 @@ int main(int argc, char **argv) {
 
     int attempts = 0;
     while (attempts < 2) {
+        if (target_node >= num_peers) {
+            fprintf(stderr, "Target node %u out of range\n", target_node);
+            break;
+        }
         printf("Sending command %u to node %u...\n", cmd, target_node);
         
         pkt_t pkt;
-        if (rpc_pack_proc_req(&pkt, target_node, num_peers, &req) != 0) {
+        if (rpc_pack_proc_req(&pkt, target_node, CLIENT_ID, &req) != 0) {
             fprintf(stderr, "Failed to pack request\n");
             break;
         }
@@ -63,7 +67,7 @@ int main(int argc, char **argv) {
 
         // Wait for response
         pkt_t res_pkt;
-        int ret = t.receive(&res_pkt, 2000, t.context);
+        int ret = t.receive(&res_pkt, 10000, t.context);
         if (ret <= 0) {
             fprintf(stderr, "Timeout or error receiving response from node %u\n", target_node);
             break;
@@ -96,6 +100,7 @@ int main(int argc, char **argv) {
     }
 
     transport_free(&t);
+    for (uint32_t i = 0; i < num_peers; i++) free(peers[i]);
     free(peers_str);
     return 0;
 }

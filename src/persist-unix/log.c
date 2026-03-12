@@ -27,6 +27,8 @@ static int f_log_read(int idx, void *entry, int n, void *ctx) {
 }
 
 static int f_log_write(int idx, void *entry, int n, void *ctx) {
+    (void)n;
+
     log_context_t *lctx = (log_context_t *)ctx;
     if (idx < 0 || (uint32_t)idx > lctx->length) return EOBND;
 

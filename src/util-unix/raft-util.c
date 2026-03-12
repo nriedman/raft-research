@@ -10,8 +10,8 @@ raft_node_t *raft_create(
     log_t log, 
     persistent_fields_t pf
 ) {
-    uint32_t *next_index = malloc(sizeof(uint32_t) * config.num_nodes);
-    uint32_t *match_index = malloc(sizeof(uint32_t) * config.num_nodes);
+    uint32_t *next_index = malloc(sizeof(*next_index) * config.num_nodes);
+    int *match_index = malloc(sizeof(*match_index) * config.num_nodes);
 
     raft_node_t *nd = calloc(1, sizeof(raft_node_t));
 
@@ -22,8 +22,8 @@ raft_node_t *raft_create(
     nd->log = log;
     nd->hard_state = pf;
 
-    nd->commit_index = 0;
-    nd->last_applied = 0;
+    nd->commit_index = -1;
+    nd->last_applied = -1;
 
     nd->leader_id = NO_LEADER;
     nd->votes_received = 0;

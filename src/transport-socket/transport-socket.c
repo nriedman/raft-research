@@ -104,37 +104,41 @@ static int socket_send(const pkt_t *pkt, void *ctx) {
     struct timeval tv;
     int max_fd;
     
-    FD_ZERO(&rfds);
-    FD_ZERO(&wfds);
-    FD_SET(fd, &wfds);
-    FD_SET(sctx->listen_fd, &rfds);
-    max_fd = (fd > sctx->listen_fd) ? fd : sctx->listen_fd;
-    
-    tv.tv_sec = 0;
-    tv.tv_usec = 100000; // 100ms wait
-    
-    int ret = select(max_fd + 1, &rfds, &wfds, NULL, &tv);
-    if (ret > 0) {
-        if (FD_ISSET(sctx->listen_fd, &rfds)) {
-            int new_fd = accept(sctx->listen_fd, NULL, NULL);
-            if (new_fd >= 0) {
-                set_nonblocking(new_fd);
-                if (sctx->num_active < MAX_CONNECTIONS) {
-                    sctx->active_fds[sctx->num_active++] = new_fd;
-                } else {
-                    close(new_fd);
+    // We loop here because we might accept new connections while waiting to send
+    while (1) {
+        FD_ZERO(&rfds);
+        FD_ZERO(&wfds);
+        FD_SET(fd, &wfds);
+        FD_SET(sctx->listen_fd, &rfds);
+        max_fd = (fd > sctx->listen_fd) ? fd : sctx->listen_fd;
+        
+        tv.tv_sec = 0;
+        tv.tv_usec = 100000; // 100ms wait
+        
+        int ret = select(max_fd + 1, &rfds, &wfds, NULL, &tv);
+        if (ret > 0) {
+            if (FD_ISSET(sctx->listen_fd, &rfds)) {
+                while (1) {
+                    int new_fd = accept(sctx->listen_fd, NULL, NULL);
+                    if (new_fd < 0) break;
+                    set_nonblocking(new_fd);
+                    if (sctx->num_active < MAX_CONNECTIONS) {
+                        sctx->active_fds[sctx->num_active++] = new_fd;
+                    } else {
+                        close(new_fd);
+                    }
                 }
+                // Check if fd is also ready, if not, select again
+                if (!FD_ISSET(fd, &wfds)) continue;
             }
+            if (FD_ISSET(fd, &wfds)) break; // Ready to send
+        } else if (ret == 0) {
+            return -1; // Timeout
+        } else {
+            if (errno == EINTR) continue;
+            perror("select in socket_send");
+            return -1;
         }
-        if (!FD_ISSET(fd, &wfds)) {
-            return -1; 
-        }
-    } else if (ret == 0) {
-        return -1; 
-    } else {
-        if (errno == EINTR) return -1;
-        perror("select in socket_send");
-        return -1;
     }
     
     int error = 0;
@@ -142,31 +146,48 @@ static int socket_send(const pkt_t *pkt, void *ctx) {
     if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &error, &len) < 0 || error != 0) {
         if (error != 0) errno = error;
         perror("socket error in socket_send");
-        close(fd);
-        remove_active_fd(sctx, fd);
-        if (dst < sctx->num_nodes) sctx->peer_fds[dst] = -1;
-        else sctx->client_fds[dst % MAX_CONNECTIONS] = -1;
-        return -1;
+        goto err_close;
     }
 
     fprintf(stderr, "[Node %u] Sending pkt to %u, code %u, size %zu\n", sctx->my_id, dst, pkt->header.code, sizeof(*pkt));
-    ssize_t n = send(fd, pkt, sizeof(*pkt), 0);
-    if (n != (ssize_t)sizeof(*pkt)) {
-        if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINPROGRESS)) {
-            return -1;
+    
+    size_t total_sent = 0;
+    while (total_sent < sizeof(*pkt)) {
+        ssize_t n = send(fd, (const char *)pkt + total_sent, sizeof(*pkt) - total_sent, 0);
+        if (n > 0) {
+            total_sent += n;
+        } else if (n < 0) {
+            if (errno == EINTR) continue;
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                // Wait for writability again if we hit EAGAIN mid-packet
+                fd_set w;
+                FD_ZERO(&w);
+                FD_SET(fd, &w);
+                struct timeval t = {0, 10000};
+                if (select(fd + 1, NULL, &w, NULL, &t) <= 0) {
+                    // If we can't write for 10ms, just fail this packet
+                    goto err_close;
+                }
+                continue;
+            }
+            perror("send");
+            goto err_close;
+        } else {
+            goto err_close;
         }
-        perror("send");
-        close(fd);
-        remove_active_fd(sctx, fd);
-        if (dst < sctx->num_nodes) sctx->peer_fds[dst] = -1;
-        else sctx->client_fds[dst % MAX_CONNECTIONS] = -1;
-        return -1;
     }
     
     return 0;
+
+err_close:
+    close(fd);
+    remove_active_fd(sctx, fd);
+    if (dst < sctx->num_nodes) sctx->peer_fds[dst] = -1;
+    else sctx->client_fds[dst % MAX_CONNECTIONS] = -1;
+    return -1;
 }
 
-static int socket_receive(const pkt_t *pkt, const uint32_t timeout_ms, void *ctx) {
+static int socket_receive(pkt_t *pkt, const uint32_t timeout_ms, void *ctx) {
     socket_context_t *sctx = (socket_context_t *)ctx;
     
     uint64_t start_time = get_usec();
@@ -200,8 +221,9 @@ static int socket_receive(const pkt_t *pkt, const uint32_t timeout_ms, void *ctx
         }
         
         if (FD_ISSET(sctx->listen_fd, &read_fds)) {
-            int new_fd = accept(sctx->listen_fd, NULL, NULL);
-            if (new_fd >= 0) {
+            while (1) {
+                int new_fd = accept(sctx->listen_fd, NULL, NULL);
+                if (new_fd < 0) break;
                 set_nonblocking(new_fd);
                 if (sctx->num_active < MAX_CONNECTIONS) {
                     sctx->active_fds[sctx->num_active++] = new_fd;
@@ -209,40 +231,70 @@ static int socket_receive(const pkt_t *pkt, const uint32_t timeout_ms, void *ctx
                     close(new_fd);
                 }
             }
+            // Fall through to check data on active_fds, including those just accepted
+            // but wait, read_fds was captured BEFORE accept. So we need to re-select
+            // or just loop back. Let's loop back to be safe.
             continue;
         }
         
         for (int i = 0; i < sctx->num_active; i++) {
             int fd = sctx->active_fds[i];
             if (FD_ISSET(fd, &read_fds)) {
-                ssize_t n = read(fd, (void *)pkt, sizeof(*pkt));
-                if (n == (ssize_t)sizeof(*pkt)) {
+                size_t total_read = 0;
+                while (total_read < sizeof(*pkt)) {
+                    ssize_t n = read(fd, (char *)pkt + total_read, sizeof(*pkt) - total_read);
+                    if (n > 0) {
+                        total_read += n;
+                    } else if (n < 0) {
+                        if (errno == EINTR) continue;
+                        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                            if (total_read > 0) {
+                                // Busy wait briefly for the rest of the packet
+                                usleep(1000);
+                                if (get_usec() > deadline) goto err_recv;
+                                continue;
+                            }
+                            break; 
+                        }
+                        goto err_recv;
+                    } else {
+                        goto err_recv;
+                    }
+                }
+                
+                if (total_read == sizeof(*pkt)) {
+                    fprintf(stderr, "[Node %u] Received pkt from %u, code %u, size %zu\n", 
+                            sctx->my_id, pkt->header.src, pkt->header.code, total_read);
                     if (pkt->header.src >= sctx->num_nodes) {
+                        int old_fd = sctx->client_fds[pkt->header.src % MAX_CONNECTIONS];
+                        if (old_fd != -1 && old_fd != fd) {
+                            close(old_fd);
+                            remove_active_fd(sctx, old_fd);
+                        }
                         sctx->client_fds[pkt->header.src % MAX_CONNECTIONS] = fd;
+                    } else {
+                        int old_fd = sctx->peer_fds[pkt->header.src];
+                        if (old_fd != -1 && old_fd != fd) {
+                            close(old_fd);
+                            remove_active_fd(sctx, old_fd);
+                        }
+                        sctx->peer_fds[pkt->header.src] = fd;
                     }
                     return 1;
-                } else if (n <= 0) {
-                    if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) continue;
-                    close(fd);
-                    remove_active_fd(sctx, fd);
-                    for (uint32_t j = 0; j < sctx->num_nodes; j++) {
-                        if (sctx->peer_fds[j] == fd) sctx->peer_fds[j] = -1;
-                    }
-                    for (int j = 0; j < MAX_CONNECTIONS; j++) {
-                        if (sctx->client_fds[j] == fd) sctx->client_fds[j] = -1;
-                    }
-                    i--; 
-                } else {
-                    close(fd);
-                    remove_active_fd(sctx, fd);
-                    for (uint32_t j = 0; j < sctx->num_nodes; j++) {
-                        if (sctx->peer_fds[j] == fd) sctx->peer_fds[j] = -1;
-                    }
-                    for (int j = 0; j < MAX_CONNECTIONS; j++) {
-                        if (sctx->client_fds[j] == fd) sctx->client_fds[j] = -1;
-                    }
-                    i--;
                 }
+                
+                continue; 
+
+            err_recv:
+                close(fd);
+                remove_active_fd(sctx, fd);
+                for (uint32_t j = 0; j < sctx->num_nodes; j++) {
+                    if (sctx->peer_fds[j] == fd) sctx->peer_fds[j] = -1;
+                }
+                for (int j = 0; j < MAX_CONNECTIONS; j++) {
+                    if (sctx->client_fds[j] == fd) sctx->client_fds[j] = -1;
+                }
+                i--;
             }
         }
     }

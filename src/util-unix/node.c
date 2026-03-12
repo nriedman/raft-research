@@ -54,17 +54,19 @@ int main(int argc, char **argv) {
     char *peers_copy = strdup(peers_str);
     char *token = strtok(peers_copy, ",");
     while (token != NULL && num_peers < 128) {
-        peers[num_peers++] = token;
+        peers[num_peers++] = strdup(token);
         token = strtok(NULL, ",");
     }
     
     if (id >= num_peers) {
         fprintf(stderr, "Error: id %u is out of range for %u peers\n", id, num_peers);
+        for (uint32_t i = 0; i < num_peers; i++) free(peers[i]);
         free(peers_copy);
         return 1;
     }
 
     transport_t transport = transport_socket_init(id, (const char **)peers, num_peers);
+    for (uint32_t i = 0; i < num_peers; i++) free(peers[i]);
     free(peers_copy); 
 
     log_t log = log_init(id);

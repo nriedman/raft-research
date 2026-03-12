@@ -82,7 +82,8 @@ int rpc_unpack_append_entries_req(const pkt_t *pkt, append_entries_req_t *req) {
     Offset | Field           | Size
     -------|-----------------|------
     0      | term            | 4 bytes
-    4      | success         | 1 byte
+    4      | new_match_index | 4 bytes
+    8      | success         | 1 byte
 */
 
 int rpc_pack_append_entries_res(pkt_t *pkt, uint32_t dst, uint32_t src, const append_entries_res_t *res) {
@@ -92,6 +93,7 @@ int rpc_pack_append_entries_res(pkt_t *pkt, uint32_t dst, uint32_t src, const ap
 
     uint8_t *p = pkt->payload;
     write_u32_be(p, res->term); p += 4;
+    write_u32_be(p, res->new_match_index); p += 4;
     *p = res->success; p++;
     
     pkt->header.payload_n = p - pkt->payload;
@@ -105,11 +107,12 @@ int rpc_pack_append_entries_res(pkt_t *pkt, uint32_t dst, uint32_t src, const ap
 int rpc_unpack_append_entries_res(const pkt_t *pkt, append_entries_res_t *res) {
     const uint8_t *p = pkt->payload;
 
-    uint32_t expected_size = 5;
+    uint32_t expected_size = 9;
     if (pkt->header.payload_n < expected_size)
         return -1;
 
     res->term = read_u32_be(p); p += 4;
+    res->new_match_index = read_u32_be(p); p += 4;
     res->success = *p; p++;
 
     return 0;

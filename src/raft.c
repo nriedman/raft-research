@@ -48,7 +48,7 @@ static int log_is_up_to_date(raft_node_t *node, uint32_t req_last_log_idx, uint3
 static void append_log_entry(raft_node_t *node, log_entry_t entry) {
     int log_len = node->log.length(node->log.context);
     if (log_len < 0) {
-        fprintf(stderr, "[Node %d] Failed to append entry, log returned bad length <%d>\n", node->config.id, log_len);
+        //fprintf(stderr, "[Node %d] Failed to append entry, log returned bad length <%d>\n", node->config.id, log_len);
         return;
     }
 
@@ -58,29 +58,29 @@ static void append_log_entry(raft_node_t *node, log_entry_t entry) {
 // MARK: RPC Helpers
 
 static void send_append_entries_request(raft_node_t *node, uint32_t dst, const append_entries_req_t *req) {
-    fprintf(stderr, "[Node %d] Sending append entries request to Node %d\n", node->config.id, dst);
+    //fprintf(stderr, "[Node %d] Sending append entries request to Node %d\n", node->config.id, dst);
     pkt_t pkt;
     rpc_pack_append_entries_req(&pkt, dst, node->config.id, req);
     node->transport.send(&pkt, node->transport.context);
 }
 
-static void send_append_entries_response(raft_node_t *node, uint32_t dst, uint32_t term, uint8_t success) {
-    fprintf(stderr, "[Node %d] Sending append entries response to Node %d\n", node->config.id, dst);
-    append_entries_res_t resp = {.term = term, .success = success };
+static void send_append_entries_response(raft_node_t *node, uint32_t dst, uint32_t term, uint32_t new_match, uint8_t success) {
+    //fprintf(stderr, "[Node %d] Sending append entries response to Node %d\n", node->config.id, dst);
+    append_entries_res_t resp = {.term = term, .new_match_index = new_match, .success = success };
     pkt_t pkt;
     rpc_pack_append_entries_res(&pkt, dst, node->config.id, &resp);
     node->transport.send(&pkt, node->transport.context);
 }
 
 static void send_request_vote_request(raft_node_t *node, uint32_t dst, const request_vote_req_t *req) {
-    fprintf(stderr, "[Node %d] Sending request vote request to Node %d\n", node->config.id, dst);
+    //fprintf(stderr, "[Node %d] Sending request vote request to Node %d\n", node->config.id, dst);
     pkt_t pkt;
     rpc_pack_request_vote_req(&pkt, dst, node->config.id, req);
     node->transport.send(&pkt, node->transport.context);
 }
 
 static void send_request_vote_response(raft_node_t *node, uint32_t dst, uint32_t term, uint8_t vote_granted) {
-    fprintf(stderr, "[Node %d] Sending request vote response to Node %d\n", node->config.id, dst);
+    //fprintf(stderr, "[Node %d] Sending request vote response to Node %d\n", node->config.id, dst);
     request_vote_res_t resp = { .term = term, .vote_granted = vote_granted };
     pkt_t pkt;
     rpc_pack_request_vote_res(&pkt, dst, node->config.id, &resp);
@@ -88,7 +88,7 @@ static void send_request_vote_response(raft_node_t *node, uint32_t dst, uint32_t
 }
 
 static void send_proc_response(raft_node_t *node, uint32_t dst, const proc_res_t *resp) {
-    fprintf(stderr, "[Node %d] Sending proc response to Node %d\n", node->config.id, dst);
+    //fprintf(stderr, "[Node %d] Sending proc response to Node %d\n", node->config.id, dst);
     pkt_t pkt;
     rpc_pack_proc_res(&pkt, dst, node->config.id, resp);
     node->transport.send(&pkt, node->transport.context);
@@ -97,7 +97,7 @@ static void send_proc_response(raft_node_t *node, uint32_t dst, const proc_res_t
 static void broadcast_request_vote(raft_node_t *node) {
     int log_len = node->log.length(node->log.context);
     if (log_len < 0) {
-        fprintf(stderr, "[Node %d] Failed to broadcast req vote, log returned bad length <%d>\n", node->config.id, log_len);
+        //fprintf(stderr, "[Node %d] Failed to broadcast req vote, log returned bad length <%d>\n", node->config.id, log_len);
         return;
     }
     
@@ -116,28 +116,41 @@ static void broadcast_request_vote(raft_node_t *node) {
     }
 }
 
-static void broadcast_append_entries(raft_node_t *node, log_entry_t *entries, int n_entries) {
+static void broadcast_append_entries(raft_node_t *node) {
     if (node->role != LEADER) {
         return;
     }
 
-    append_entries_req_t req = {
-        .term = (uint32_t)node->hard_state.get(PF_CURRENT_TERM, node->hard_state.context),
-        .leader_id = node->config.id,
-        .leader_commit = node->commit_index,
-        .n_entries = (uint32_t)n_entries
-    };
+    int log_len = node->log.length(node->log.context);
+    uint32_t cur_term = (uint32_t)node->hard_state.get(PF_CURRENT_TERM, node->hard_state.context);
 
-    for (int i = 0; i < n_entries; i++) {
-        req.entries[i] = entries[i];
-    }
+    fprintf(stderr, "[Node %d] Broadcasting AppendEntries: <log=%d>, <term=%d>, <commit=%d>, <la=%d>\n",
+        node->config.id, log_len, cur_term, node->commit_index, node->last_applied);
 
     for (uint32_t i = 0; i < node->config.num_nodes; i++) {
         if (i == node->config.id)
             continue;
-        
-        req.prev_log_idx = node->next_index[i] - 1;
-        req.prev_log_term = raft_get_log_term(node, (int)req.prev_log_idx);
+
+        append_entries_req_t req = {
+            .term = cur_term,
+            .leader_id = node->config.id,
+            .leader_commit = node->commit_index,
+            .prev_log_idx = node->next_index[i] - 1,
+            .prev_log_term = raft_get_log_term(node, (int)node->next_index[i] - 1),
+        };
+
+        int n_to_send = log_len - (int)node->next_index[i];
+        if (n_to_send > MAX_APPEND_ENTRIES_N) {
+            n_to_send = MAX_APPEND_ENTRIES_N;
+        }
+        if (n_to_send < 0) {
+            n_to_send = 0;
+        }
+
+        req.n_entries = (uint32_t)n_to_send;
+        for (int j = 0; j < n_to_send; j++) {
+            node->log.read((int)node->next_index[i] + j, &req.entries[j], sizeof(log_entry_t), node->log.context);
+        }
 
         send_append_entries_request(node, i, &req);
     }
@@ -148,21 +161,21 @@ static void send_heartbeats(raft_node_t *node) {
         return;
     }
 
-    fprintf(stderr, "[Node %d] Sending heartbeat\n", node->config.id);
+    int cur_term = node->hard_state.get(PF_CURRENT_TERM, node->hard_state.context);
 
+    //fprintf(stderr, "[Node %d] Sending heartbeat\n", node->config.id);
     for (uint32_t i = 0; i < node->config.num_nodes; i++) {
         if (i == node->config.id)
             continue;
 
         append_entries_req_t req = {
-            .term = (uint32_t)node->hard_state.get(PF_CURRENT_TERM, node->hard_state.context),
+            .term = cur_term,
             .leader_id = node->config.id,
             .leader_commit = node->commit_index,
             .prev_log_idx = node->next_index[i] - 1,
             .prev_log_term = raft_get_log_term(node, (int)node->next_index[i] - 1),
             .n_entries = 0
         };
-
         send_append_entries_request(node, i, &req);
     }
 }
@@ -175,7 +188,7 @@ static void apply_to_state_machine(raft_node_t *node) {
         log_entry_t entry;
         int bytes_read = node->log.read((int)node->last_applied, &entry, sizeof(entry), node->log.context);
         if (bytes_read != (int)sizeof(entry)) {
-            fprintf(stderr, "[Node %d] Failed to read log entry %d for state machine\n", node->config.id, (int)node->last_applied);
+            //fprintf(stderr, "[Node %d] Failed to read log entry %d for state machine\n", node->config.id, (int)node->last_applied);
             continue;
         }
 
@@ -205,19 +218,19 @@ static void apply_to_state_machine(raft_node_t *node) {
 static void handle_append_entries_request(raft_node_t *node, append_entries_req_t req) {
     int cur_term_opt = node->hard_state.get(PF_CURRENT_TERM, node->hard_state.context);
     if (cur_term_opt < 0) {
-        fprintf(stderr, "[Node %d] Append entries request handler failed, bad term: <%d>\n", node->config.id, cur_term_opt);
+        //fprintf(stderr, "[Node %d] Append entries request handler failed, bad term: <%d>\n", node->config.id, cur_term_opt);
         return;
     }
     uint32_t cur_term = (uint32_t)cur_term_opt;
 
     if (req.term < cur_term) {
-        fprintf(stderr, "[Node %d] Rejecting append entries: term %d < %d\n", node->config.id, req.term, cur_term);
-        send_append_entries_response(node, req.leader_id, cur_term, 0);
+        //fprintf(stderr, "[Node %d] Rejecting append entries: term %d < %d\n", node->config.id, req.term, cur_term);
+        send_append_entries_response(node, req.leader_id, cur_term, 0, 0);
         return;
     }
 
     if (req.term > cur_term || (req.term == cur_term && node->role == CANDIDATE)) {
-        fprintf(stderr, "[Node %d] Accepting leader %d for term %d\n", node->config.id, req.leader_id, req.term);
+        //fprintf(stderr, "[Node %d] Accepting leader %d for term %d\n", node->config.id, req.leader_id, req.term);
         become_follower(node, req.term, req.leader_id);
     } else {
         node->leader_id = req.leader_id;
@@ -227,13 +240,13 @@ static void handle_append_entries_request(raft_node_t *node, append_entries_req_
 
     int log_len = node->log.length(node->log.context);
     if (log_len < 0) {
-        fprintf(stderr, "[Node %d] Failed to handle append entries req, log returned bad length <%d>\n", node->config.id, log_len);
+        //fprintf(stderr, "[Node %d] Failed to handle append entries req, log returned bad length <%d>\n", node->config.id, log_len);
         return;
     }
 
     if ((int)req.prev_log_idx >= log_len || raft_get_log_term(node, (int)req.prev_log_idx) != req.prev_log_term) {
-        fprintf(stderr, "[Node %d] Log inconsistency at idx %d\n", node->config.id, req.prev_log_idx);
-        send_append_entries_response(node, req.leader_id, cur_term, 0);
+        //fprintf(stderr, "[Node %d] Log inconsistency at idx %d\n", node->config.id, req.prev_log_idx);
+        send_append_entries_response(node, req.leader_id, cur_term, 0, 0);
         return;
     }
 
@@ -242,7 +255,7 @@ static void handle_append_entries_request(raft_node_t *node, append_entries_req_
         uint32_t log_idx = new_idx + i;
         if (log_idx < (uint32_t)log_len) {
             if (raft_get_log_term(node, (int)log_idx) != req.entries[i].term) {
-                fprintf(stderr, "[Node %d] Conflict at idx %d, truncating log\n", node->config.id, log_idx);
+                //fprintf(stderr, "[Node %d] Conflict at idx %d, truncating log\n", node->config.id, log_idx);
                 node->log.remove_last_n(log_len - (int)log_idx, node->log.context);
                 log_len = (int)log_idx;
             } else {
@@ -250,23 +263,25 @@ static void handle_append_entries_request(raft_node_t *node, append_entries_req_
             }
         }
 
+        fprintf(stderr, "[Node %d] Writing <cmd=%d> from <cid=%d> to log at <i=%d>\n", node->config.id, req.entries[i].cmd, req.entries[i].client_id, log_idx);
         node->log.write((int)log_idx, &req.entries[i], sizeof(req.entries[i]), node->log.context);
         log_len++;
     }
 
     if (req.leader_commit > node->commit_index) {
-        uint32_t last_new_entry_idx = req.prev_log_idx + req.n_entries;
+        fprintf(stderr, "[Node %d] Increasing commit index from <old=%d> to <new=%d>\n", node->config.id, req.leader_commit, node->commit_index);
+        int last_new_entry_idx = req.prev_log_idx + req.n_entries;
         node->commit_index = req.leader_commit < last_new_entry_idx ? req.leader_commit : last_new_entry_idx;
         apply_to_state_machine(node);
     }
 
-    send_append_entries_response(node, req.leader_id, cur_term, 1);
+    send_append_entries_response(node, req.leader_id, cur_term, req.prev_log_idx + req.n_entries, 1);
 }
 
 static void handle_append_entries_response(raft_node_t *node, uint32_t src_id, append_entries_res_t resp) {
     uint32_t cur_term = (uint32_t)node->hard_state.get(PF_CURRENT_TERM, node->hard_state.context);
     if (resp.term > cur_term) {
-        fprintf(stderr, "[Node %d] Found higher term %d in append response, becoming follower\n", node->config.id, resp.term);
+        //fprintf(stderr, "[Node %d] Found higher term %d in append response, becoming follower\n", node->config.id, resp.term);
         become_follower(node, resp.term, src_id);
         return;
     }
@@ -276,20 +291,21 @@ static void handle_append_entries_response(raft_node_t *node, uint32_t src_id, a
     }
 
     if (resp.success) {
-        uint32_t log_len = (uint32_t)node->log.length(node->log.context);
-        node->match_index[src_id] = log_len - 1;
+        int log_len = node->log.length(node->log.context);
+        node->match_index[src_id] = resp.new_match_index;
         node->next_index[src_id] = log_len;
 
-        for (uint32_t n = node->commit_index + 1; n < log_len; n++) {
+        for (int n = node->commit_index + 1; n < log_len; n++) {
             if (raft_get_log_term(node, (int)n) != cur_term) continue;
             
-            uint32_t count = 1; 
+            uint32_t count = 1;
             for (uint32_t i = 0; i < node->config.num_nodes; i++) {
                 if (i != node->config.id && node->match_index[i] >= n) {
                     count++;
                 }
             }
             if (count > node->config.num_nodes / 2) {
+                fprintf(stderr, "[Node %d] Updating commit index to <cidx=%d>\n", node->config.id, n);
                 node->commit_index = n;
             }
         }
@@ -297,37 +313,37 @@ static void handle_append_entries_response(raft_node_t *node, uint32_t src_id, a
     } else {
         if (node->next_index[src_id] > 0) {
             node->next_index[src_id]--;
-            fprintf(stderr, "[Node %d] Decrementing next_index for Node %d to %d\n", node->config.id, src_id, node->next_index[src_id]);
+            //fprintf(stderr, "[Node %d] Decrementing next_index for Node %d to %d\n", node->config.id, src_id, node->next_index[src_id]);
         }
     }
 }
 
 static void handle_request_vote_request(raft_node_t *node, uint32_t src_id, const request_vote_req_t req) {
-    fprintf(stderr, "[Node %d] Handle RequestVote from Node %d (term %d, last_idx %d, last_term %d)\n",
-            node->config.id, (int)req.candidate_id, (int)req.term, (int)req.last_log_idx, (int)req.last_log_term);
+    //fprintf(stderr, "[Node %d] Handle RequestVote from Node %d (term %d, last_idx %d, last_term %d)\n",
+            // node->config.id, (int)req.candidate_id, (int)req.term, (int)req.last_log_idx, (int)req.last_log_term);
 
     int cur_term_opt = node->hard_state.get(PF_CURRENT_TERM, node->hard_state.context);
     if (cur_term_opt < 0) {
-        fprintf(stderr, "[Node %d] Vote request handler failed, bad term: <%d>\n", node->config.id, cur_term_opt);
+        //fprintf(stderr, "[Node %d] Vote request handler failed, bad term: <%d>\n", node->config.id, cur_term_opt);
         return;
     }
     uint32_t cur_term = (uint32_t)cur_term_opt;
 
     if (req.term < cur_term ) {
-        fprintf(stderr, "[Node %d] Rejecting vote: term %d < %d\n", node->config.id, req.term, cur_term);
+        //fprintf(stderr, "[Node %d] Rejecting vote: term %d < %d\n", node->config.id, req.term, cur_term);
         send_request_vote_response(node, req.candidate_id, cur_term, 0);
         return;
     }
 
     if (req.term > cur_term) {
-        fprintf(stderr, "[Node %d] Found higher term %d, becoming follower\n", node->config.id, req.term);
+        //fprintf(stderr, "[Node %d] Found higher term %d, becoming follower\n", node->config.id, req.term);
         become_follower(node, req.term, src_id);
         cur_term = req.term; 
     }
 
     int voted_for_opt = node->hard_state.get(PF_VOTED_FOR, node->hard_state.context);
     if (voted_for_opt < 0) {
-        fprintf(stderr, "[Node %d] Vote request handler failed, bad persisted vote: <%d>\n", node->config.id, voted_for_opt);
+        //fprintf(stderr, "[Node %d] Vote request handler failed, bad persisted vote: <%d>\n", node->config.id, voted_for_opt);
         return;
     }
     uint32_t voted_for = (uint32_t)voted_for_opt;
@@ -336,13 +352,13 @@ static void handle_request_vote_request(raft_node_t *node, uint32_t src_id, cons
     uint8_t vote_granted = 0;
 
     if (has_voted && voted_for != req.candidate_id) {
-        fprintf(stderr, "[Node %d] Rejecting vote: already voted for %d\n", node->config.id, voted_for);
+        //fprintf(stderr, "[Node %d] Rejecting vote: already voted for %d\n", node->config.id, voted_for);
     } else if (!log_is_up_to_date(node, req.last_log_idx, req.last_log_term)) {
-        fprintf(stderr, "[Node %d] Rejecting vote: candidate log not up to date\n", node->config.id);
+        //fprintf(stderr, "[Node %d] Rejecting vote: candidate log not up to date\n", node->config.id);
     } else {
         vote_granted = 1;
         node->hard_state.set(PF_VOTED_FOR, req.candidate_id, node->hard_state.context);
-        fprintf(stderr, "[Node %d] Granting vote to Node %d for term %d\n", node->config.id, req.candidate_id, cur_term);
+        //fprintf(stderr, "[Node %d] Granting vote to Node %d for term %d\n", node->config.id, req.candidate_id, cur_term);
         set_election_timer(node);
     }
 
@@ -356,7 +372,7 @@ static void handle_request_vote_response(raft_node_t *node, uint32_t src_id, req
 
     uint32_t cur_term = (uint32_t)node->hard_state.get(PF_CURRENT_TERM, node->hard_state.context);
     if (resp.term > cur_term) {
-        fprintf(stderr, "[Node %d] Found higher term %d in vote response, becoming follower\n", node->config.id, resp.term);
+        //fprintf(stderr, "[Node %d] Found higher term %d in vote response, becoming follower\n", node->config.id, resp.term);
         become_follower(node, resp.term, src_id);
         return;
     }
@@ -368,15 +384,15 @@ static void handle_request_vote_response(raft_node_t *node, uint32_t src_id, req
     if (resp.vote_granted) {
         node->votes_received++;
 
-        fprintf(stderr, "[Node %u] Received vote from Node %u, total: %u/%u\n",
-                node->config.id, src_id, node->votes_received, node->config.num_nodes);
+        //fprintf(stderr, "[Node %u] Received vote from Node %u, total: %u/%u\n",
+                // node->config.id, src_id, node->votes_received, node->config.num_nodes);
             
         if (node->votes_received > node->config.num_nodes / 2) {
-            fprintf(stderr, "[Node %u] Majority reached! Becoming leader for term %d\n", node->config.id, cur_term);
+            //fprintf(stderr, "[Node %u] Majority reached! Becoming leader for term %d\n", node->config.id, cur_term);
             become_leader(node);
         }
     } else {
-        fprintf(stderr, "[Node %u] Vote denied by Node %u\n", node->config.id, src_id);
+        //fprintf(stderr, "[Node %u] Vote denied by Node %u\n", node->config.id, src_id);
     }
 }
 
@@ -413,10 +429,10 @@ static void handle_proc_request(raft_node_t *node, proc_req_t req, uint32_t src_
         }
     }
     if (!found) {
-        fprintf(stderr, "[Node %d] Too many outstanding requests!\n", node->config.id);
+        //fprintf(stderr, "[Node %d] Too many outstanding requests!\n", node->config.id);
     }
 
-    broadcast_append_entries(node, &new_entry, 1);
+    broadcast_append_entries(node);
 }
 
 static void handle_proc_response(raft_node_t *node, proc_res_t resp) {
@@ -428,50 +444,62 @@ static void handle_proc_response(raft_node_t *node, proc_res_t resp) {
 static void raft_handle_rpc(raft_node_t *node, pkt_t *rpc_pkt) {
     switch (rpc_pkt->header.code) {
         case RPC_CALL_APPEND_ENT: {
-            fprintf(stderr, "[Node %d] Processing append entries request from Node %d\n", node->config.id, rpc_pkt->header.src);
+            //fprintf(stderr, "[Node %d] Processing append entries request from Node %d\n", node->config.id, rpc_pkt->header.src);
             append_entries_req_t req;
-            rpc_unpack_append_entries_req(rpc_pkt, &req);
-            handle_append_entries_request(node, req);
+            if (rpc_unpack_append_entries_req(rpc_pkt, &req) == 0)
+                handle_append_entries_request(node, req);
+            else
+                fprintf(stderr, "[Node %d] Failed to unpack append entries request\n", node->config.id);
             break;
         }
         case RPC_RESP_APPEND_ENT: {
-            fprintf(stderr, "[Node %d] Processing append entries response from Node %d\n", node->config.id, rpc_pkt->header.src);
+            //fprintf(stderr, "[Node %d] Processing append entries response from Node %d\n", node->config.id, rpc_pkt->header.src);
             append_entries_res_t resp;
-            rpc_unpack_append_entries_res(rpc_pkt, &resp);
-            handle_append_entries_response(node, rpc_pkt->header.src, resp);
+            if (rpc_unpack_append_entries_res(rpc_pkt, &resp) == 0)
+                handle_append_entries_response(node, rpc_pkt->header.src, resp);
+            else
+                fprintf(stderr, "[Node %d] Failed to unpack append entries response\n", node->config.id);
             break;
         }
         case RPC_CALL_REQ_VOTE: {
-            fprintf(stderr, "[Node %d] Processing request vote request from Node %d\n", node->config.id, rpc_pkt->header.src);
+            //fprintf(stderr, "[Node %d] Processing request vote request from Node %d\n", node->config.id, rpc_pkt->header.src);
             request_vote_req_t req;
-            rpc_unpack_request_vote_req(rpc_pkt, &req);
-            handle_request_vote_request(node, rpc_pkt->header.src, req);
+            if (rpc_unpack_request_vote_req(rpc_pkt, &req) == 0)
+                handle_request_vote_request(node, rpc_pkt->header.src, req);
+            else
+                fprintf(stderr, "[Node %d] Failed to unpack request vote request\n", node->config.id);
             break;
         }
         case RPC_RESP_REQ_VOTE: {
-            fprintf(stderr, "[Node %d] Processing request vote response from Node %d\n", node->config.id, rpc_pkt->header.src);
+            //fprintf(stderr, "[Node %d] Processing request vote response from Node %d\n", node->config.id, rpc_pkt->header.src);
             request_vote_res_t resp;
-            rpc_unpack_request_vote_res(rpc_pkt, &resp);
-            handle_request_vote_response(node, rpc_pkt->header.src, resp);
+            if (rpc_unpack_request_vote_res(rpc_pkt, &resp) == 0)
+                handle_request_vote_response(node, rpc_pkt->header.src, resp);
+            else
+                fprintf(stderr, "[Node %d] Failed to unpack request vote response\n", node->config.id);
             break;
         }
         case RPC_CALL_PROC: {
-            fprintf(stderr, "[Node %d] Processing proc request from Node %d\n", node->config.id, rpc_pkt->header.src);
+            //fprintf(stderr, "[Node %d] Processing proc request from Node %d\n", node->config.id, rpc_pkt->header.src);
             proc_req_t req;
-            rpc_unpack_proc_req(rpc_pkt, &req);
-            handle_proc_request(node, req, rpc_pkt->header.src);
+            if (rpc_unpack_proc_req(rpc_pkt, &req) == 0)
+                handle_proc_request(node, req, rpc_pkt->header.src);
+            else
+                fprintf(stderr, "[Node %d] Failed to unpack proc request\n", node->config.id);
             break;
         }
         case RPC_RESP_PROC: {
-            fprintf(stderr, "[Node %d] Processing proc response from Node %d\n", node->config.id, rpc_pkt->header.src);
+            //fprintf(stderr, "[Node %d] Processing proc response from Node %d\n", node->config.id, rpc_pkt->header.src);
             proc_res_t resp;
-            rpc_unpack_proc_res(rpc_pkt, &resp);
-            handle_proc_response(node, resp);
+            if (rpc_unpack_proc_res(rpc_pkt, &resp) == 0)
+                handle_proc_response(node, resp);
+            else
+                fprintf(stderr, "[Node %d] Failed to unpack proc response\n", node->config.id);
             break;
         }
         default: {
-            fprintf(stderr, "[Node %d] Unknown RPC code: %u\n", 
-                    node->config.id, rpc_pkt->header.code);
+            // fprintf(stderr, "[Node %d] Unknown RPC code: %u\n", 
+                    // node->config.id, rpc_pkt->header.code);
         }
     }
 }
@@ -481,7 +509,7 @@ static void raft_handle_rpc(raft_node_t *node, pkt_t *rpc_pkt) {
 static void start_election(raft_node_t *node) {
     int cur_term_opt = node->hard_state.get(PF_CURRENT_TERM, node->hard_state.context);
     if (cur_term_opt < 0) {
-        fprintf(stderr, "[Node %d] Election start failed, bad term: <%d>\n", node->config.id, cur_term_opt);
+        //fprintf(stderr, "[Node %d] Election start failed, bad term: <%d>\n", node->config.id, cur_term_opt);
         return;
     }
     uint32_t cur_term = (uint32_t)cur_term_opt;
@@ -490,14 +518,14 @@ static void start_election(raft_node_t *node) {
     node->hard_state.set(PF_VOTED_FOR, node->config.id, node->hard_state.context);       
     node->votes_received = 1;
 
-    fprintf(stderr, "[Node %d] Starting election for term %d\n", node->config.id, (int)cur_term + 1);
+    //fprintf(stderr, "[Node %d] Starting election for term %d\n", node->config.id, (int)cur_term + 1);
 
     set_election_timer(node);
     broadcast_request_vote(node);
 }
 
 static void become_follower(raft_node_t *node, uint32_t term, uint32_t leader_id) {
-    fprintf(stderr, "[Node %d] Becoming follower for term %d\n", node->config.id, term);
+    //fprintf(stderr, "[Node %d] Becoming follower for term %d\n", node->config.id, term);
     node->hard_state.set(PF_CURRENT_TERM, term, node->hard_state.context);
     node->role = FOLLOWER;
     node->leader_id = leader_id;
@@ -507,7 +535,7 @@ static void become_follower(raft_node_t *node, uint32_t term, uint32_t leader_id
 }
 
 static void become_candidate(raft_node_t *node) {
-    fprintf(stderr, "[Node %d] Becoming candidate\n", node->config.id);
+    //fprintf(stderr, "[Node %d] Becoming candidate\n", node->config.id);
     node->role = CANDIDATE;
     node->leader_id = NO_LEADER;
     node->votes_received = 0;
@@ -515,14 +543,14 @@ static void become_candidate(raft_node_t *node) {
 }
 
 static void become_leader(raft_node_t *node) {
-    fprintf(stderr, "[Node %d] Becoming leader for term %d\n", node->config.id, (uint32_t)node->hard_state.get(PF_CURRENT_TERM, node->hard_state.context));
+    //fprintf(stderr, "[Node %d] Becoming leader for term %d\n", node->config.id, (uint32_t)node->hard_state.get(PF_CURRENT_TERM, node->hard_state.context));
     node->role = LEADER;
     node->leader_id = NO_LEADER;
 
     int log_len = node->log.length(node->log.context);
     for (unsigned i = 0; i < node->config.num_nodes; i++) {
         node->next_index[i] = (uint32_t)log_len;
-        node->match_index[i] = 0;
+        node->match_index[i] = -1;
     }
 
     set_heartbeat_timer(node);
@@ -536,7 +564,7 @@ static void set_election_timer(raft_node_t *node) {
         ELECTION_INTERVAL_MIN_USEC,
         ELECTION_INTERVAL_MAX_USEC
     );
-    fprintf(stderr, "[Node %d] Set election timer to %llu usec\n", node->config.id, node->timer.duration_usec);
+    //fprintf(stderr, "[Node %d] Set election timer to %llu usec\n", node->config.id, node->timer.duration_usec);
     timer_reset(&node->timer);
 }
 
@@ -562,6 +590,7 @@ static void raft_handle_timeout(raft_node_t *node) {
             break;
         }
         case LEADER: {
+            set_heartbeat_timer(node);
             send_heartbeats(node);
             break;
         }
@@ -579,13 +608,13 @@ void raft_run(raft_node_t *node) {
 
         if (rc == 1) {
             if (pkt.header.code == RPC_SHUTDOWN) {
-                fprintf(stderr, "[Node %d] Received shutdown signal\n", node->config.id);
+                //fprintf(stderr, "[Node %d] Received shutdown signal\n", node->config.id);
                 node->running = 0;
                 break;
             }
 
             if (pkt.header.dst != node->config.id) {
-                fprintf(stderr, "[Node %d] Rx unintended packet\n", node->config.id);
+                //fprintf(stderr, "[Node %d] Rx unintended packet\n", node->config.id);
                 continue;
             }
 
@@ -593,11 +622,11 @@ void raft_run(raft_node_t *node) {
         } else if (rc == 0 || timer_expired(&node->timer)) {
             raft_handle_timeout(node);
         } else {
-            fprintf(stderr, "[Node %d] Rx failure, exiting\n", node->config.id);
+            //fprintf(stderr, "[Node %d] Rx failure, exiting\n", node->config.id);
             node->running = 0;
             break;
         }
     }
 
-    fprintf(stderr, "[Node %d] Exiting gracefully\n", node->config.id);
+    //fprintf(stderr, "[Node %d] Exiting gracefully\n", node->config.id);
 }

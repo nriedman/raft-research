@@ -7,9 +7,9 @@
 #include "transport.h"
 #include <stdint.h>
 
-#define HEARTBEAT_INTERVAL_USEC     100 * 1000   // 100 ms
-#define ELECTION_INTERVAL_MIN_USEC  500 * 1000   // 500 ms
-#define ELECTION_INTERVAL_MAX_USEC  1000 * 1000  // 1000 ms
+#define HEARTBEAT_INTERVAL_USEC     1*1000 * 1000   // 100 ms
+#define ELECTION_INTERVAL_MIN_USEC  5*1000 * 1000   // 500 ms
+#define ELECTION_INTERVAL_MAX_USEC  9*1000 * 1000  // 1000 ms
 
 #define NO_LEADER                   UINT32_MAX  // index stored when no leader known
 
@@ -44,8 +44,8 @@ typedef struct {
     persistent_fields_t hard_state;
 
     // "volatile" state (all servers)
-    uint32_t commit_index;          // index of highest log entry known to be commited (init 0)
-    uint32_t last_applied;          // index of highest log entry applied to state machine (init 0)
+    int commit_index;          // index of highest log entry known to be commited (init 0)
+    int last_applied;          // index of highest log entry applied to state machine (init 0)
 
     // "volatile" state (follower only)
     uint32_t leader_id;             // id of leader if known, NO_LEADER otherwise
@@ -56,8 +56,8 @@ typedef struct {
     // "volatile" state (only leaders)
     uint32_t *next_index;           // for each server, index of next log entry to send to that server
                                     // (init leader last log index + 1)
-    uint32_t *match_index;          // for each server, index of highest log entry known to be replicated
-                                    // (init 0)
+    int *match_index;               // for each server, index of highest log entry known to be replicated
+                                    // (init -1)
 
     // Outstanding client requests (only for leaders)
     outstanding_req_t outstanding_reqs[MAX_OUTSTANDING_REQUESTS];
