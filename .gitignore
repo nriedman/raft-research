@@ -12,3 +12,6 @@
 
 # Ignore compilation artifacts
 objs/
+
+# Ignore MacOS artifact .DS_store
+.DS_store
