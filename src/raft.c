@@ -304,8 +304,10 @@ static void handle_append_entries_response(raft_node_t *node, uint32_t src_id, a
                     count++;
                 }
             }
-            // TODO: See last bullet point of Rules for Servers in Fig. 2
-            //      - log[N].term == currentTerm
+            // See last bullet point of Rules for Servers in Fig. 2
+            //      - N > commitIndex (n starts at commit_index + 1)
+            //      - a majority of matchIndex[i] >= N
+            //      - log[N].term == currentTerm (if statement above)
             if (count > node->config.num_nodes / 2) {
                 fprintf(stderr, "[Node %d] Updating commit index to <cidx=%d>\n", node->config.id, n);
                 node->commit_index = n;
