@@ -26,4 +26,4 @@ typedef struct {
 } persistent_fields_t;
 
 persistent_fields_t persistent_fields_init(void);
-void persistent_fields_free(persistent_field_t *pf);
+void persistent_fields_free(persistent_fields_t *pf);

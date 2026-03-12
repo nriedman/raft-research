@@ -208,7 +208,7 @@ static void apply_to_state_machine(raft_node_t *node) {
     }
 }
 
-static void handle_append_entires_request(raft_node_t *node, append_entries_req_t req) {
+static void handle_append_entries_request(raft_node_t *node, append_entries_req_t req) {
     int cur_term_opt = node->hard_state.get(PF_CURRENT_TERM, node->hard_state.context);
     if (cur_term_opt < 0) {
         fprintf(stderr, "[Node %d] Append entries request handler failed, bad term: <%d>\n", node->config.id, cur_term_opt);
@@ -454,7 +454,7 @@ static void raft_handle_rpc(raft_node_t *node, pkt_t *rpc_pkt) {
             fprintf(stderr, "[Node %d] Processing append entries request from Node %d\n", node->config.id, rpc_pkt->header.src);
             append_entries_req_t req;
             rpc_unpack_append_entries_req(rpc_pkt, &req);
-            handle_append_entires_request(node, req);
+            handle_append_entries_request(node, req);
             break;
         }
         case RPC_RESP_APPEND_ENT: {
