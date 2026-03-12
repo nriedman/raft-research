@@ -1,5 +1,7 @@
 #pragma once
 
+#include <stdint.h>
+
 // Error codes that log functions may return.
 enum {
     EOBND = -51,        // an index was out of bounds
@@ -56,5 +58,5 @@ typedef struct {
     void *context;
 } log_t;
 
-log_t log_init(void);
+log_t log_init(uint32_t node_id);
 void log_free(log_t *log);

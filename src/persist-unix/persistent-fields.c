@@ -25,9 +25,12 @@ static int pf_set(int f, uint32_t v, void *ctx) {
     return 0;
 }
 
-persistent_fields_t persistent_fields_init(void) {
+persistent_fields_t persistent_fields_init(uint32_t node_id) {
+    char state_name[64];
+    sprintf(state_name, "raft_%u.state", node_id);
+
     pf_context_t *ctx = malloc(sizeof(pf_context_t));
-    ctx->fd = open("raft.state", O_RDWR | O_CREAT, 0644);
+    ctx->fd = open(state_name, O_RDWR | O_CREAT, 0644);
     if (ctx->fd == -1) {
         perror("open raft.state");
         exit(1);

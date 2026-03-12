@@ -5,5 +5,9 @@
 !Makefile
 !*/
 
+# Ignore logs
+*.log*
+*.state
+
 # Ignore compilation artifacts
 objs/

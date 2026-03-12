@@ -25,5 +25,5 @@ typedef struct {
     void *context;
 } persistent_fields_t;
 
-persistent_fields_t persistent_fields_init(void);
+persistent_fields_t persistent_fields_init(uint32_t node_id);
 void persistent_fields_free(persistent_fields_t *pf);

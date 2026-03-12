@@ -22,9 +22,8 @@ static int f_log_read(int idx, void *entry, int n, void *ctx) {
     uint8_t buf[log_entry_packed_size()];
     if (read(lctx->log_fd, buf, sizeof(buf)) != (ssize_t)sizeof(buf)) return -1;
     
-    // We assume the caller provides enough space for log_entry_t
     log_entry_unpack(buf, (log_entry_t *)entry);
-    return n; // Or log_entry_packed_size()? raft.c expects sizeof(ent)
+    return n;
 }
 
 static int f_log_write(int idx, void *entry, int n, void *ctx) {
@@ -50,8 +49,7 @@ static int f_log_write(int idx, void *entry, int n, void *ctx) {
 }
 
 static int f_log_entry_size(int idx, void *ctx) {
-    (void)idx;
-    (void)ctx;
+    (void)idx; (void)ctx;
     return log_entry_packed_size();
 }
 
@@ -84,10 +82,14 @@ static int f_log_remove_last_n(int n, void *ctx) {
     return n;
 }
 
-log_t log_init(void) {
+log_t log_init(uint32_t node_id) {
+    char log_name[64], meta_name[64];
+    sprintf(log_name, "raft_%u.log", node_id);
+    sprintf(meta_name, "raft_%u.log.meta", node_id);
+
     log_context_t *ctx = malloc(sizeof(log_context_t));
-    ctx->log_fd = open("raft.log", O_RDWR | O_CREAT, 0644);
-    ctx->meta_fd = open("raft.log.meta", O_RDWR | O_CREAT, 0644);
+    ctx->log_fd = open(log_name, O_RDWR | O_CREAT, 0644);
+    ctx->meta_fd = open(meta_name, O_RDWR | O_CREAT, 0644);
     
     if (ctx->log_fd == -1 || ctx->meta_fd == -1) {
         perror("open log files");
