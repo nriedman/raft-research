@@ -174,6 +174,40 @@ static void send_heartbeats(raft_node_t *node) {
 
 // MARK: RPC Handlers
 
+static void apply_to_state_machine(raft_node_t *node) {
+    while (node->last_applied < node->commit_index) {
+        node->last_applied++;
+        log_entry_t entry;
+        int bytes_read = node->log.read(node->last_applied, &entry, sizeof(entry), node->log.context);
+        if (bytes_read != sizeof(entry)) {
+            fprintf(stderr, "[Node %d] Failed to read log entry %d for state machine\n", node->config.id, node->last_applied);
+            continue;
+        }
+
+        fprintf(stderr, "[Node %d] Applying entry %d (cmd %d) to state machine\n", node->config.id, node->last_applied, entry.cmd);
+        
+        // If we are the leader, we might have a client waiting for this
+        if (node->role == LEADER) {
+            for (int i = 0; i < MAX_OUTSTANDING_REQUESTS; i++) {
+                if (node->outstanding_reqs[i].active && 
+                    node->outstanding_reqs[i].client_id == entry.client_id &&
+                    node->outstanding_reqs[i].cmd_seqno == entry.cmd_seqno) {
+                    
+                    proc_res_t resp = {
+                        .client_id = entry.client_id,
+                        .cmd_seqno = entry.cmd_seqno,
+                        .success = 1,
+                        .leader_hint = node->config.id
+                    };
+                    send_proc_response(node, entry.client_id, &resp);
+                    node->outstanding_reqs[i].active = 0;
+                    break;
+                }
+            }
+        }
+    }
+}
+
 static void handle_append_entires_request(raft_node_t *node, append_entries_req_t req) {
     int cur_term_opt = node->hard_state.get(PF_CURRENT_TERM, node->hard_state.context);
     if (cur_term_opt < 0) {
@@ -197,6 +231,8 @@ static void handle_append_entires_request(raft_node_t *node, append_entries_req_
     ) {
         fprintf(stderr, "[Node %d] Accepting leader %d for term %d\n", node->config.id, req.leader_id, req.term);
         become_follower(node, req.term, req.leader_id);
+    } else {
+        node->leader_id = req.leader_id;
     }
 
     set_election_timer(node); // reset election timer
@@ -207,7 +243,7 @@ static void handle_append_entires_request(raft_node_t *node, append_entries_req_
         return;
     }
 
-    if (req.prev_log_idx >= log_len || raft_get_log_term(node, req.prev_log_term) != req.prev_log_term) {
+    if (req.prev_log_idx >= log_len || (req.prev_log_idx > 0 && raft_get_log_term(node, req.prev_log_idx) != req.prev_log_term)) {
         fprintf(stderr, "[Node %d] Log inconsistency at idx %d\n", node->config.id, req.prev_log_idx);
         send_append_entries_response(node, req.leader_id, cur_term, 0);
         return;
@@ -220,6 +256,7 @@ static void handle_append_entires_request(raft_node_t *node, append_entries_req_
             if (raft_get_log_term(node, log_idx) != req.entries[i].term) {
                 fprintf(stderr, "[Node %d] Conflict at idx %d, truncating log\n", node->config.id, log_idx);
                 node->log.remove_last_n(log_len - log_idx, node->log.context);
+                log_len = log_idx;
                 // fall through to append
             } else {
                 continue; // already matches
@@ -228,46 +265,57 @@ static void handle_append_entires_request(raft_node_t *node, append_entries_req_
 
         // overwrites if log_idx < log_len, and appends otherwise
         node->log.write(log_idx, &req.entries[i], sizeof(req.entries[i]), node->log.context);
+        log_len++;
     }
 
     if (req.leader_commit > node->commit_index) {
-        uint32_t old_commit_index = node->commit_index;
         uint32_t last_new_entry_idx = req.prev_log_idx + req.n_entries;
         node->commit_index = req.leader_commit < last_new_entry_idx ? req.leader_commit : last_new_entry_idx;
-        
-        // apply newly committed entries to state machine
-        fprintf(stderr, "[Node %d] Applying entries in [%d, %d) to state machine\n", node->config.id, old_commit_index, node->commit_index);
-        
-        // TODO: implement an acutally useful state machine after finishing log work.
+        apply_to_state_machine(node);
     }
 
-    // q: are heartbeats special? Do they cause problems if we respond to them?
     send_append_entries_response(node, req.leader_id, cur_term, 1);
 }
 
 static void handle_append_entries_response(raft_node_t *node, uint32_t src_id, append_entries_res_t resp) {
-    if (resp.term > node->hard_state.get(PF_CURRENT_TERM, node->hard_state.context)) {
+    uint32_t cur_term = node->hard_state.get(PF_CURRENT_TERM, node->hard_state.context);
+    if (resp.term > cur_term) {
         fprintf(stderr, "[Node %d] Found higher term %d in append response, becoming follower\n", node->config.id, resp.term);
         become_follower(node, resp.term, src_id);
         return;
     }
 
-    if (node->role != LEADER) {
+    if (node->role != LEADER || resp.term < cur_term) {
         return;
     }
 
     if (resp.success) {
-        // Heartbeats (n_entries=0) don't necessarily need to update these,
-        // but for now let's just use it to track replication.
+        // Track replication (this logic assumes we sent entries up to the end of our log)
+        // In a more robust implementation, we'd know exactly which entries were in the request.
+        uint32_t log_len = node->log.length(node->log.context);
+        node->match_index[src_id] = log_len - 1;
+        node->next_index[src_id] = log_len;
 
-        // TODO: track how many followers have responded, and once a quorum
-        //       is reached, apply to state machine and reply to client.
+        // Check if we can advance commit_index
+        for (uint32_t n = node->commit_index + 1; n < log_len; n++) {
+            if (raft_get_log_term(node, n) != cur_term) continue;
+            
+            uint32_t count = 1; // ourselves
+            for (uint32_t i = 0; i < node->config.num_nodes; i++) {
+                if (i != node->config.id && node->match_index[i] >= n) {
+                    count++;
+                }
+            }
+            if (count > node->config.num_nodes / 2) {
+                node->commit_index = n;
+            }
+        }
+        apply_to_state_machine(node);
     } else {
         if (node->next_index[src_id] > 1) {
             node->next_index[src_id]--;
             fprintf(stderr, "[Node %d] Decrementing next_index for Node %d to %d\n", node->config.id, src_id, node->next_index[src_id]);
-
-            // TODO: resend the append entries request
+            // next heartbeat or broadcast will retry with lower index
         }
     }
 }
@@ -353,31 +401,49 @@ static void handle_request_vote_response(raft_node_t *node, uint32_t src_id, req
     }
 }
 
-static void handle_proc_request(raft_node_t *node, proc_req_t req) {
-    // If we aren't the leader, and...
-    //      - we know who the leader is, forward to them.
-    //      - we don't know the leader, drop the request.
+static void handle_proc_request(raft_node_t *node, proc_req_t req, uint32_t src_id) {
     if (node->role != LEADER) {
-        if (node->leader_id != NO_LEADER)
-            send_proc_request(node, node->leader_id, &req);
+        proc_res_t resp = {
+            .client_id = req.client_id,
+            .cmd_seqno = req.cmd_seqno,
+            .success = 0,
+            .leader_hint = node->leader_id
+        };
+        send_proc_response(node, src_id, &resp);
         return;
     }
 
-    // We're the leader, so append entries to local log, and send out
-    // an append entry request to followers.
+    int log_len = node->log.length(node->log.context);
     log_entry_t new_entry = {
+        .client_id = req.client_id,
+        .cmd_seqno = req.cmd_seqno,
         .cmd = req.cmd,
         .term = node->hard_state.get(PF_CURRENT_TERM, node->hard_state.context)
     };
     append_log_entry(node, new_entry);
-    broadcast_append_entries(node, &new_entry, 1);
 
-    // TODO: Save the message for later so that we know who to reply to after
-    //       the command was processed.
+    // Record as outstanding
+    int found = 0;
+    for (int i = 0; i < MAX_OUTSTANDING_REQUESTS; i++) {
+        if (!node->outstanding_reqs[i].active) {
+            node->outstanding_reqs[i].client_id = req.client_id;
+            node->outstanding_reqs[i].cmd_seqno = req.cmd_seqno;
+            node->outstanding_reqs[i].log_idx = log_len;
+            node->outstanding_reqs[i].active = 1;
+            found = 1;
+            break;
+        }
+    }
+    if (!found) {
+        fprintf(stderr, "[Node %d] Too many outstanding requests!\n", node->config.id);
+    }
+
+    broadcast_append_entries(node, &new_entry, 1);
 }
 
 static void handle_proc_response(raft_node_t *node, proc_res_t resp) {
-
+    // Usually clients handle this, but if we forwarded it (in previous impl) 
+    // we might receive one. In the new requirement, we don't forward.
 }
 
 // MARK: RPC Dispatch
@@ -410,6 +476,20 @@ static void raft_handle_rpc(raft_node_t *node, pkt_t *rpc_pkt) {
             request_vote_res_t resp;
             rpc_unpack_request_vote_res(rpc_pkt, &resp);
             handle_request_vote_response(node, rpc_pkt->header.src, resp);
+            break;
+        }
+        case RPC_CALL_PROC: {
+            fprintf(stderr, "[Node %d] Processing proc request from Node %d\n", node->config.id, rpc_pkt->header.src);
+            proc_req_t req;
+            rpc_unpack_proc_req(rpc_pkt, &req);
+            handle_proc_request(node, req, rpc_pkt->header.src);
+            break;
+        }
+        case RPC_RESP_PROC: {
+            fprintf(stderr, "[Node %d] Processing proc response from Node %d\n", node->config.id, rpc_pkt->header.src);
+            proc_res_t resp;
+            rpc_unpack_proc_res(rpc_pkt, &resp);
+            handle_proc_response(node, resp);
             break;
         }
         default: {

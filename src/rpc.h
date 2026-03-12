@@ -47,11 +47,16 @@ typedef struct {
 } request_vote_res_t;
 
 typedef struct {
+    uint32_t client_id;
+    uint32_t cmd_seqno;
     uint32_t cmd;
 } proc_req_t;
 
 typedef struct {
+    uint32_t client_id;
+    uint32_t cmd_seqno;
     uint8_t success;
+    uint32_t leader_hint;
 } proc_res_t;
 
 // serialize/deserialize RPC requests/responses into transport packet, setting packet size in header

@@ -13,11 +13,20 @@
 
 #define NO_LEADER                   UINT32_MAX  // index stored when no leader known
 
+#define MAX_OUTSTANDING_REQUESTS    128
+
 typedef enum {
     FOLLOWER,
     CANDIDATE,
     LEADER
 } raft_role_t;
+
+typedef struct {
+    uint32_t client_id;
+    uint32_t cmd_seqno;
+    uint32_t log_idx;
+    uint8_t active;
+} outstanding_req_t;
 
 typedef struct {
     uint32_t id;
@@ -49,6 +58,9 @@ typedef struct {
                                     // (init leader last log index + 1)
     uint32_t *match_index;          // for each server, index of highest log entry known to be replicated
                                     // (init 0)
+
+    // Outstanding client requests (only for leaders)
+    outstanding_req_t outstanding_reqs[MAX_OUTSTANDING_REQUESTS];
 
     // set to 0 on termination, 1 otherwise
     uint8_t running;

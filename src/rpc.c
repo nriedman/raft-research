@@ -202,7 +202,9 @@ int rpc_unpack_request_vote_res(const pkt_t *pkt, request_vote_res_t *res) {
 /*
     Offset | Field           | Size
     -------|-----------------|------
-    0      | cmd             | 4 bytes
+    0      | client_id       | 4 bytes
+    4      | cmd_seqno       | 4 bytes
+    8      | cmd             | 4 bytes
 */
 
 int rpc_pack_proc_req(pkt_t *pkt, uint32_t dst, uint32_t src, const proc_req_t *req) {
@@ -211,6 +213,8 @@ int rpc_pack_proc_req(pkt_t *pkt, uint32_t dst, uint32_t src, const proc_req_t *
     pkt->header.code = RPC_CALL_PROC;
 
     uint8_t *p = pkt->payload;
+    write_u32_be(p, req->client_id); p += 4;
+    write_u32_be(p, req->cmd_seqno); p += 4;
     write_u32_be(p, req->cmd); p += 4;
     
     pkt->header.payload_n = p - pkt->payload;
@@ -224,10 +228,12 @@ int rpc_pack_proc_req(pkt_t *pkt, uint32_t dst, uint32_t src, const proc_req_t *
 int rpc_unpack_proc_req(const pkt_t *pkt, proc_req_t *req) {
     const uint8_t *p = pkt->payload;
 
-    uint32_t expected_size = 4;
+    uint32_t expected_size = 12;
     if (pkt->header.payload_n < expected_size)
         return -1;
 
+    req->client_id = read_u32_be(p); p += 4;
+    req->cmd_seqno = read_u32_be(p); p += 4;
     req->cmd = read_u32_be(p); p += 4;
 
     return 0;
@@ -236,7 +242,10 @@ int rpc_unpack_proc_req(const pkt_t *pkt, proc_req_t *req) {
 /*
     Offset | Field           | Size
     -------|-----------------|------
-    0      | success         | 1 byte
+    0      | client_id       | 4 bytes
+    4      | cmd_seqno       | 4 bytes
+    8      | success         | 1 byte
+    9      | leader_hint     | 4 bytes
 */
 
 int rpc_pack_proc_res(pkt_t *pkt, uint32_t dst, uint32_t src, const proc_res_t *res) {
@@ -245,7 +254,10 @@ int rpc_pack_proc_res(pkt_t *pkt, uint32_t dst, uint32_t src, const proc_res_t *
     pkt->header.code = RPC_RESP_PROC;
 
     uint8_t *p = pkt->payload;
+    write_u32_be(p, res->client_id); p += 4;
+    write_u32_be(p, res->cmd_seqno); p += 4;
     *p = res->success; p++;
+    write_u32_be(p, res->leader_hint); p += 4;
     
     pkt->header.payload_n = p - pkt->payload;
 
@@ -258,11 +270,14 @@ int rpc_pack_proc_res(pkt_t *pkt, uint32_t dst, uint32_t src, const proc_res_t *
 int rpc_unpack_proc_res(const pkt_t *pkt, proc_res_t *res) {
     const uint8_t *p = pkt->payload;
 
-    uint32_t expected_size = 1;
+    uint32_t expected_size = 13;
     if (pkt->header.payload_n < expected_size)
         return -1;
 
+    res->client_id = read_u32_be(p); p += 4;
+    res->cmd_seqno = read_u32_be(p); p += 4;
     res->success = *p; p++;
+    res->leader_hint = read_u32_be(p); p += 4;
 
     return 0;
 }
