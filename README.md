@@ -6,7 +6,7 @@ A practical implementation of the Raft consensus algorithm in C, utilizing socke
 
 The project consists of:
 - **`raft-node`**: An individual Raft node that manages leader elections, log replication, and state persistence. Nodes communicate over TCP sockets.
-- **`raft-client`**: A simple client to send commands to the Raft cluster (work in progress).
+- **`raft-client`**: A simple client to send commands to the Raft cluster.
 
 ## Features
 
@@ -53,8 +53,6 @@ Each node will start, load any existing state from its local files, and begin th
 
 ### Using the Client
 
-**Note:** The client is currently a work in progress and may not function as expected in all scenarios.
-
 To send a command (e.g., the value `42`) to the cluster:
 
 ```bash
@@ -80,11 +78,7 @@ To remove compiled objects and executables:
 make clean
 ```
 
-To reset the cluster state (delete all logs and state files):
-
-```bash
-rm raft_*.state raft_*.log raft_*.log.meta
-```
+This will also reset the cluster state (delete all logs and state files):
 
 ## Acknowledgments
 
@@ -99,6 +93,11 @@ Additionally, AI tools (Gemini CLI, Copilot) were used to develop the following 
 
 - `README.md` description to introduce project and describe usage;
 - Extend debug messages for higher fidelity runtime logging;
-- Compose the Makefile for ease of compilation over changing codebase structure.
+- Compose the Makefile for ease of compilation over changing codebase structure;
+- Implement a socket-based transport layer (see `srd/transport-socket/*`);
+- Implement a first-draft client functionality in the `srd/util-unix/client.c` source file;
+- Fill in the method bodies in `persist-unix/log.c` and `persist-unix/persistent-fields.c`;
+- Refactor the `apply_to_state_machine` method in `src/raft.c`;
+- Add outstanding client request caching in `src/raft.*`;
 
-Where applicable, inline comments document attributions for code that came from external sources not discussed here.
+Any commits marked with `[AI]` were developed using AI coding tools. Where applicable, inline comments document attributions for code that came from external sources not discussed here.
