@@ -19,16 +19,28 @@ typedef struct {
     char **peer_addrs;
     int listen_fd;
     
-    // peer_fds[i] is the outgoing socket to node i.
     int *peer_fds; 
-    
-    // client_fds[client_id % MAX_CONNECTIONS] = fd
     int client_fds[MAX_CONNECTIONS];
     
-    // All currently active fds for select()
     int active_fds[MAX_CONNECTIONS];
     int num_active;
 } socket_context_t;
+
+static void set_nonblocking(int fd) {
+    int flags = fcntl(fd, F_GETFL, 0);
+    if (flags == -1) return;
+    fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+}
+
+static void remove_active_fd(socket_context_t *sctx, int fd) {
+    for (int i = 0; i < sctx->num_active; i++) {
+        if (sctx->active_fds[i] == fd) {
+            sctx->active_fds[i] = sctx->active_fds[sctx->num_active - 1];
+            sctx->num_active--;
+            return;
+        }
+    }
+}
 
 static int parse_addr(const char *addr_str, struct sockaddr_in *addr) {
     char buf[256];
@@ -54,12 +66,19 @@ static int connect_to_peer(socket_context_t *sctx, uint32_t node_id) {
     int fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0) return -1;
     
+    set_nonblocking(fd);
+    
     if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-        close(fd);
-        return -1;
+        if (errno != EINPROGRESS) {
+            close(fd);
+            return -1;
+        }
     }
     
     sctx->peer_fds[node_id] = fd;
+    if (sctx->num_active < MAX_CONNECTIONS) {
+        sctx->active_fds[sctx->num_active++] = fd;
+    }
     return fd;
 }
 
@@ -79,9 +98,13 @@ static int socket_send(const pkt_t *pkt, void *ctx) {
     
     if (fd == -1) return -1;
     
-    ssize_t n = write(fd, pkt, sizeof(*pkt));
+    ssize_t n = send(fd, pkt, sizeof(*pkt), 0);
     if (n != (ssize_t)sizeof(*pkt)) {
+        if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINPROGRESS)) {
+            return 0;
+        }
         close(fd);
+        remove_active_fd(sctx, fd);
         if (dst < sctx->num_nodes) sctx->peer_fds[dst] = -1;
         else sctx->client_fds[dst % MAX_CONNECTIONS] = -1;
         return -1;
@@ -93,55 +116,82 @@ static int socket_send(const pkt_t *pkt, void *ctx) {
 static int socket_receive(const pkt_t *pkt, const uint32_t timeout_ms, void *ctx) {
     socket_context_t *sctx = (socket_context_t *)ctx;
     
-    fd_set read_fds;
-    int max_fd = sctx->listen_fd;
-    
-    FD_ZERO(&read_fds);
-    FD_SET(sctx->listen_fd, &read_fds);
-    
-    for (int i = 0; i < sctx->num_active; i++) {
-        FD_SET(sctx->active_fds[i], &read_fds);
-        if (sctx->active_fds[i] > max_fd) max_fd = sctx->active_fds[i];
-    }
-    
-    struct timeval timeout;
-    timeout.tv_sec = timeout_ms / 1000;
-    timeout.tv_usec = (timeout_ms % 1000) * 1000;
-    
-    int ret = select(max_fd + 1, &read_fds, NULL, NULL, &timeout);
-    if (ret == 0) return 0;
-    if (ret < 0) return -1;
-    
-    if (FD_ISSET(sctx->listen_fd, &read_fds)) {
-        int new_fd = accept(sctx->listen_fd, NULL, NULL);
-        if (new_fd >= 0) {
-            if (sctx->num_active < MAX_CONNECTIONS) {
-                sctx->active_fds[sctx->num_active++] = new_fd;
-            } else {
-                close(new_fd);
-            }
+    uint64_t start_time = get_usec();
+    uint64_t deadline = start_time + (uint64_t)timeout_ms * 1000;
+
+    while (1) {
+        uint64_t now = get_usec();
+        if (now >= deadline) return 0;
+        uint32_t remaining_ms = (uint32_t)((deadline - now) / 1000);
+
+        fd_set read_fds;
+        int max_fd = sctx->listen_fd;
+        FD_ZERO(&read_fds);
+        FD_SET(sctx->listen_fd, &read_fds);
+        
+        for (int i = 0; i < sctx->num_active; i++) {
+            FD_SET(sctx->active_fds[i], &read_fds);
+            if (sctx->active_fds[i] > max_fd) max_fd = sctx->active_fds[i];
         }
-    }
-    
-    for (int i = 0; i < sctx->num_active; i++) {
-        int fd = sctx->active_fds[i];
-        if (FD_ISSET(fd, &read_fds)) {
-            ssize_t n = read(fd, (void *)pkt, sizeof(*pkt));
-            if (n == (ssize_t)sizeof(*pkt)) {
-                if (pkt->header.src >= sctx->num_nodes) {
-                    sctx->client_fds[pkt->header.src % MAX_CONNECTIONS] = fd;
+        
+        struct timeval timeout;
+        timeout.tv_sec = remaining_ms / 1000;
+        timeout.tv_usec = (remaining_ms % 1000) * 1000;
+        
+        int ret = select(max_fd + 1, &read_fds, NULL, NULL, &timeout);
+        if (ret == 0) return 0;
+        if (ret < 0) {
+            if (errno == EINTR) continue;
+            return -1;
+        }
+        
+        if (FD_ISSET(sctx->listen_fd, &read_fds)) {
+            int new_fd = accept(sctx->listen_fd, NULL, NULL);
+            if (new_fd >= 0) {
+                set_nonblocking(new_fd);
+                if (sctx->num_active < MAX_CONNECTIONS) {
+                    sctx->active_fds[sctx->num_active++] = new_fd;
+                } else {
+                    close(new_fd);
                 }
-                return 1;
-            } else {
-                close(fd);
-                sctx->active_fds[i] = sctx->active_fds[sctx->num_active - 1];
-                sctx->num_active--;
-                i--;
+            }
+            continue;
+        }
+        
+        for (int i = 0; i < sctx->num_active; i++) {
+            int fd = sctx->active_fds[i];
+            if (FD_ISSET(fd, &read_fds)) {
+                ssize_t n = read(fd, (void *)pkt, sizeof(*pkt));
+                if (n == (ssize_t)sizeof(*pkt)) {
+                    if (pkt->header.src >= sctx->num_nodes) {
+                        sctx->client_fds[pkt->header.src % MAX_CONNECTIONS] = fd;
+                    }
+                    return 1;
+                } else if (n <= 0) {
+                    if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) continue;
+                    close(fd);
+                    remove_active_fd(sctx, fd);
+                    for (uint32_t j = 0; j < sctx->num_nodes; j++) {
+                        if (sctx->peer_fds[j] == fd) sctx->peer_fds[j] = -1;
+                    }
+                    for (int j = 0; j < MAX_CONNECTIONS; j++) {
+                        if (sctx->client_fds[j] == fd) sctx->client_fds[j] = -1;
+                    }
+                    i--; 
+                } else {
+                    close(fd);
+                    remove_active_fd(sctx, fd);
+                    for (uint32_t j = 0; j < sctx->num_nodes; j++) {
+                        if (sctx->peer_fds[j] == fd) sctx->peer_fds[j] = -1;
+                    }
+                    for (int j = 0; j < MAX_CONNECTIONS; j++) {
+                        if (sctx->client_fds[j] == fd) sctx->client_fds[j] = -1;
+                    }
+                    i--;
+                }
             }
         }
     }
-    
-    return 0;
 }
 
 transport_t transport_socket_init(uint32_t id, const char **peers, uint32_t num_peers) {
@@ -169,8 +219,10 @@ transport_t transport_socket_init(uint32_t id, const char **peers, uint32_t num_
     }
     
     ctx->listen_fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (ctx->listen_fd < 0) { perror("socket"); exit(1); }
     int opt = 1;
     setsockopt(ctx->listen_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+    set_nonblocking(ctx->listen_fd);
     
     if (bind(ctx->listen_fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
         perror("bind");
@@ -187,9 +239,9 @@ transport_t transport_socket_init(uint32_t id, const char **peers, uint32_t num_
 }
 
 void transport_free(transport_t *t) {
+    if (!t || !t->context) return;
     socket_context_t *sctx = (socket_context_t *)t->context;
     for (uint32_t i = 0; i < sctx->num_nodes; i++) {
-        if (sctx->peer_fds[i] != -1) close(sctx->peer_fds[i]);
         free(sctx->peer_addrs[i]);
     }
     for (int i = 0; i < sctx->num_active; i++) close(sctx->active_fds[i]);
@@ -197,4 +249,5 @@ void transport_free(transport_t *t) {
     free(sctx->peer_fds);
     free(sctx->peer_addrs);
     free(sctx);
+    t->context = NULL;
 }

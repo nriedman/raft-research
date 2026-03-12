@@ -20,21 +20,6 @@ raft_node_t *raft_create(
     nd->transport = transport;
 
     nd->log = log;
-    if (nd->log.length(nd->log.context) == 0) {
-        // Note: to avoid annoying edge cases,
-        // we assume a non-empty log by starting with an empty entry
-
-        // TODO: Don't do this workaround at all? It seems silly.
-        log_entry_t noop = {
-            .client_id = 0,
-            .cmd = 0,
-            .cmd_seqno = 0,
-            .term = 0
-        };
-        // no need to worry about endianness, since we're the only ones reading the file
-        nd->log.write(0, (void *)&noop, sizeof(noop), nd->log.context);
-    }
-
     nd->hard_state = pf;
 
     nd->commit_index = 0;
