@@ -22,3 +22,4 @@ static inline uint32_t read_u32_be(const uint8_t *p) {
 }
 
 uint64_t get_usec();
+uint64_t random_timeout_usec(uint32_t min, uint32_t max);

@@ -4,11 +4,37 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
+
+/*
+    Usage:
+        ./raft-node --id <node_id> --peers <ip:port,ip:port,...>
+
+    Arguments:
+        --id <node_id>: The zero-indexed identifier for this node. It corresponds 
+                        to the index of its own address in the --peers list.
+        --peers <list>: A comma-separated list of "IP:PORT" pairs for all nodes 
+                        in the Raft cluster.
+
+    Example:
+        To run a local cluster of 3 nodes, open three terminals and run:
+        
+        Terminal 0: ./raft-node --id 0 --peers 127.0.0.1:8000,127.0.0.1:8001,127.0.0.1:8002
+        Terminal 1: ./raft-node --id 1 --peers 127.0.0.1:8000,127.0.0.1:8001,127.0.0.1:8002
+        Terminal 2: ./raft-node --id 2 --peers 127.0.0.1:8000,127.0.0.1:8001,127.0.0.1:8002
+
+    Persistence:
+        Each node maintains its own state and log files in the current directory:
+        - State: raft_<id>.state
+        - Log:   raft_<id>.log and raft_<id>.log.meta
+*/
 
 int main(int argc, char **argv) {
     uint32_t id = 0;
     char *peers_str = NULL;
     
+    srand(time(NULL) ^ getpid());
+
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--id") == 0 && i + 1 < argc) {
             id = (uint32_t)atoi(argv[++i]);

@@ -7,9 +7,9 @@
 #include "transport.h"
 #include <stdint.h>
 
-#define HEARTBEAT_INTERVAL_USEC     1000*2  *1000   // 50 ms
-#define ELECTION_INTERVAL_MIN_USEC  1000*10 *1000   // 150 ms
-#define ELECTION_INTERVAL_MAX_USEC  1000*10 *1000   // 300 ms
+#define HEARTBEAT_INTERVAL_USEC     50  * 1000   // 50 ms
+#define ELECTION_INTERVAL_MIN_USEC  150 * 1000   // 150 ms
+#define ELECTION_INTERVAL_MAX_USEC  300 * 1000   // 300 ms
 
 #define NO_LEADER                   UINT32_MAX  // index stored when no leader known
 

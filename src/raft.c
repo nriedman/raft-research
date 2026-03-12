@@ -1,10 +1,10 @@
 #include "raft.h"
+#include "util.h"
 #include <stdio.h>
 #include <stdlib.h>
 
 // MARK: Raft Utility Helpers
 
-static uint64_t random_timeout_usec(uint32_t min, uint32_t max);
 static void set_election_timer(raft_node_t *node);
 static void set_heartbeat_timer(raft_node_t *node);
 
@@ -35,7 +35,7 @@ static int log_is_up_to_date(raft_node_t *node, uint32_t req_last_log_idx, uint3
         return 1;
 
     if (raft_get_log_term(node, log_len - 1) == req_last_log_term)
-        return log_len - 1 <= req_last_log_idx;
+        return (uint32_t)(log_len - 1) <= req_last_log_idx;
 
     return 0;   // node log has higher-term last entry than req log
 }
@@ -79,13 +79,6 @@ static void send_request_vote_response(raft_node_t *node, uint32_t dst, uint32_t
     request_vote_res_t resp = { .term = term, .vote_granted = vote_granted };
     pkt_t pkt;
     rpc_pack_request_vote_res(&pkt, dst, node->config.id, &resp);
-    node->transport.send(&pkt, node->transport.context);
-}
-
-static void send_proc_request(raft_node_t *node, uint32_t dst, const proc_req_t *req) {
-    fprintf(stderr, "[Node %d] Sending proc request to Node %d\n", node->config.id, dst);
-    pkt_t pkt;
-    rpc_pack_proc_req(&pkt, dst, node->config.id, req);
     node->transport.send(&pkt, node->transport.context);
 }
 
@@ -154,8 +147,8 @@ static void send_heartbeats(raft_node_t *node) {
 
     fprintf(stderr, "[Node %d] Sending heartbeat\n", node->config.id);
 
-    for (int i = 0; i < node->config.num_nodes; i++) {
-        if (i == node->config.id)
+    for (int i = 0; i < (int)node->config.num_nodes; i++) {
+        if (i == (int)node->config.id)
             continue;
 
         // empty 
@@ -243,7 +236,7 @@ static void handle_append_entries_request(raft_node_t *node, append_entries_req_
         return;
     }
 
-    if (req.prev_log_idx >= log_len || (req.prev_log_idx > 0 && raft_get_log_term(node, req.prev_log_idx) != req.prev_log_term)) {
+    if (req.prev_log_idx >= (uint32_t)log_len || (req.prev_log_idx > 0 && raft_get_log_term(node, req.prev_log_idx) != req.prev_log_term)) {
         fprintf(stderr, "[Node %d] Log inconsistency at idx %d\n", node->config.id, req.prev_log_idx);
         send_append_entries_response(node, req.leader_id, cur_term, 0);
         return;
@@ -252,7 +245,7 @@ static void handle_append_entries_request(raft_node_t *node, append_entries_req_
     uint32_t new_idx = req.prev_log_idx + 1;
     for (uint32_t i = 0; i < req.n_entries; i++) {
         uint32_t log_idx = new_idx + i;
-        if (log_idx < log_len) {
+        if (log_idx < (uint32_t)log_len) {
             if (raft_get_log_term(node, log_idx) != req.entries[i].term) {
                 fprintf(stderr, "[Node %d] Conflict at idx %d, truncating log\n", node->config.id, log_idx);
                 node->log.remove_last_n(log_len - log_idx, node->log.context);
@@ -322,7 +315,7 @@ static void handle_append_entries_response(raft_node_t *node, uint32_t src_id, a
 
 static void handle_request_vote_request(raft_node_t *node, uint32_t src_id, const request_vote_req_t req) {
     fprintf(stderr, "[Node %d] Handle RequestVote from Node %d (term %d, last_idx %d, last_term %d)\n",
-            node->config.id, req.candidate_id, req.term, req.last_log_idx, req.last_log_term);
+            node->config.id, req.candidate_id, req.term, (int)req.last_log_idx, (int)req.last_log_term);
 
     int cur_term_opt = node->hard_state.get(PF_CURRENT_TERM, node->hard_state.context);
     if (cur_term_opt < 0) {
@@ -374,14 +367,14 @@ static void handle_request_vote_response(raft_node_t *node, uint32_t src_id, req
     }
 
     // if we detect a server with higher term, convert to follower
-    if (resp.term > node->hard_state.get(PF_CURRENT_TERM, node->hard_state.context)) {
+    if (resp.term > (uint32_t)node->hard_state.get(PF_CURRENT_TERM, node->hard_state.context)) {
         fprintf(stderr, "[Node %d] Found higher term %d in vote response, becoming follower\n", node->config.id, resp.term);
         become_follower(node, resp.term, src_id);
         return;
     }
 
     // ignore old responses
-    if (resp.term < node->hard_state.get(PF_CURRENT_TERM, node->hard_state.context)) {
+    if (resp.term < (uint32_t)node->hard_state.get(PF_CURRENT_TERM, node->hard_state.context)) {
         return;
     }
 
@@ -442,6 +435,7 @@ static void handle_proc_request(raft_node_t *node, proc_req_t req, uint32_t src_
 }
 
 static void handle_proc_response(raft_node_t *node, proc_res_t resp) {
+    (void)node; (void)resp;
     // Usually clients handle this, but if we forwarded it (in previous impl) 
     // we might receive one. In the new requirement, we don't forward.
 }
@@ -556,10 +550,6 @@ static void become_leader(raft_node_t *node) {
 
 // MARK: Timeout
 
-static uint64_t random_timeout_usec(uint32_t min, uint32_t max) {
-    return min + (rand() % (max - min));
-}
-
 static void set_election_timer(raft_node_t *node) {
     node->timer.duration_usec = random_timeout_usec(
         ELECTION_INTERVAL_MIN_USEC,
@@ -628,5 +618,3 @@ void raft_run(raft_node_t *node) {
 
     fprintf(stderr, "[Node %d] Exiting gracefully\n", node->config.id);
 }
-
-// MARK: Prev font size = 12

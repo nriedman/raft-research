@@ -1,4 +1,5 @@
 #include "../raft.h"
+#include "../util.h"
 #include <stdlib.h>
 #include <stdio.h>
 #include <unistd.h>
@@ -46,7 +47,12 @@ raft_node_t *raft_create(
 
     nd->running = 1;
 
-    // TODO: When to start timer? I believe it's inited to 0 at the moment.
+    // Start election timer
+    nd->timer.duration_usec = random_timeout_usec(
+        ELECTION_INTERVAL_MIN_USEC,
+        ELECTION_INTERVAL_MAX_USEC
+    );
+    timer_reset(&nd->timer);
     
     return nd;
 }
