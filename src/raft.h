@@ -9,11 +9,15 @@
 
 #define HEARTBEAT_INTERVAL_USEC     1*1000 * 1000   // 100 ms
 #define ELECTION_INTERVAL_MIN_USEC  5*1000 * 1000   // 500 ms
-#define ELECTION_INTERVAL_MAX_USEC  9*1000 * 1000  // 1000 ms
+#define ELECTION_INTERVAL_MAX_USEC  9*1000 * 1000   // 1000 ms
 
-#define NO_LEADER                   UINT32_MAX  // index stored when no leader known
+#define NO_LEADER                   UINT32_MAX      // index stored when no leader known
 
 #define MAX_OUTSTANDING_REQUESTS    128
+
+// Heartbeat telemetry configuration
+#define HEARTBEAT_WINDOW_SIZE       10              // Number of intervals to track
+#define LEADER_FAILURE_Z_THRESHOLD  2.5f            // Z-score threshold (2.5 ≈ 99.4% confidence)
 
 typedef enum {
     FOLLOWER,
@@ -27,6 +31,14 @@ typedef struct {
     uint32_t log_idx;
     uint8_t active;
 } outstanding_req_t;
+
+// Heartbeat telemetry tracking
+typedef struct {
+    uint64_t intervals_usec[HEARTBEAT_WINDOW_SIZE];   // Circular buffer of recent intervals
+    uint32_t interval_index;                          // Current index in circular buffer
+    uint32_t num_intervals;                           // Number of intervals collected (increases until window full)
+    uint64_t last_heartbeat_usec;                     // Timestamp of last received heartbeat
+} heartbeat_telemetry_t;
 
 typedef struct {
     uint32_t id;
@@ -50,6 +62,9 @@ typedef struct {
     // "volatile" state (follower only)
     uint32_t leader_id;             // id of leader if known, NO_LEADER otherwise
 
+    // Heartbeat telemetry (follower only)
+    heartbeat_telemetry_t heartbeat_telemetry;
+
     // "volatile" state (candidate only)
     uint32_t votes_received;        // for elections: when > num_nodes / 2, candidate wins
 
@@ -72,3 +87,8 @@ typedef struct {
 raft_node_t *raft_create(raft_config_t config, transport_t transport, log_t log, persistent_fields_t pf);
 void raft_destroy(raft_node_t *node);
 void raft_run(raft_node_t *node);       // main event loop
+
+// Heartbeat telemetry functions
+void heartbeat_telemetry_init(heartbeat_telemetry_t *telemetry);
+void heartbeat_telemetry_record_interval(heartbeat_telemetry_t *telemetry, uint64_t current_time_usec);
+int heartbeat_telemetry_check_leader_failure(heartbeat_telemetry_t *telemetry, uint64_t current_interval_usec);

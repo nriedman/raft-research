@@ -2,6 +2,7 @@
 #include "util.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <math.h>
 
 // MARK: Raft Utility Helpers
 
@@ -599,6 +600,136 @@ static void raft_handle_timeout(raft_node_t *node) {
             break;
         }
     }
+}
+
+// Heartbeat Telemetry
+
+void heartbeat_telemetry_init(heartbeat_telemetry_t *telemetry) {
+    for (int i = 0; i < HEARTBEAT_WINDOW_SIZE; i++) {
+        telemetry->intervals_usec[i] = 0;
+    }
+    telemetry->interval_index = 0;
+    telemetry->num_intervals = 0;
+    telemetry->last_heartbeat_usec = 0;
+}
+
+// Compute mean of heartbeat intervals
+static double compute_mean_interval(const heartbeat_telemetry_t *telemetry) {
+    if (telemetry->num_intervals == 0) {
+        return 0.0;
+    }
+    
+    uint64_t sum = 0;
+    for (uint32_t i = 0; i < telemetry->num_intervals; i++) {
+        sum += telemetry->intervals_usec[i];
+    }
+    
+    return (double)sum / (double)telemetry->num_intervals;
+}
+
+// [AI] Compute standard deviation of heartbeat intervals
+static double compute_std_dev_interval(const heartbeat_telemetry_t *telemetry) {
+    if (telemetry->num_intervals <= 1) {
+        return 0.0;
+    }
+    
+    double mean = compute_mean_interval(telemetry);
+    double sum_sq_diff = 0.0;
+    
+    for (uint32_t i = 0; i < telemetry->num_intervals; i++) {
+        double diff = (double)telemetry->intervals_usec[i] - mean;
+        sum_sq_diff += diff * diff;
+    }
+    
+    double variance = sum_sq_diff / (double)(telemetry->num_intervals - 1);
+    return sqrt(variance);
+}
+
+// [AI] Gaussian CDF approximation (standard normal distribution)
+// Returns cumulative probability P(Z <= z)
+static double gaussian_cdf(double z) {
+    // Using error function approximation (Abramowitz and Stegun)
+    if (z == 0.0) return 0.5;
+    
+    double sign = (z > 0) ? 1.0 : -1.0;
+    z = fabs(z);
+    
+    // Approximation constants
+    double a1 =  0.254829592;
+    double a2 = -0.284496736;
+    double a3 =  1.421413741;
+    double a4 = -1.453152027;
+    double a5 =  1.061405429;
+    double p  =  0.3275911;
+    
+    double t = 1.0 / (1.0 + p * z);
+    double t2 = t * t;
+    double t3 = t2 * t;
+    double t4 = t3 * t;
+    double t5 = t4 * t;
+    
+    double erf = 1.0 - (a1*t + a2*t2 + a3*t3 + a4*t4 + a5*t5) * exp(-z*z);
+    double cdf = 0.5 * (1.0 + sign * erf);
+    
+    return cdf;
+}
+
+void heartbeat_telemetry_record_interval(heartbeat_telemetry_t *telemetry, uint64_t current_time_usec) {
+    // Initialize on first heartbeat
+    if (telemetry->last_heartbeat_usec == 0) {
+        telemetry->last_heartbeat_usec = current_time_usec;
+        return;
+    }
+    
+    // Calculate interval since last heartbeat
+    uint64_t interval_usec = current_time_usec - telemetry->last_heartbeat_usec;
+    telemetry->last_heartbeat_usec = current_time_usec;
+    
+    // Store in circular buffer
+    telemetry->intervals_usec[telemetry->interval_index] = interval_usec;
+    telemetry->interval_index = (telemetry->interval_index + 1) % HEARTBEAT_WINDOW_SIZE;
+    
+    // Track number of intervals collected (until window is full)
+    if (telemetry->num_intervals < HEARTBEAT_WINDOW_SIZE) {
+        telemetry->num_intervals++;
+    }
+}
+
+// [AI] Check if leader has likely failed based on heartbeat interval statistics
+// Returns 1 if failure likely, 0 otherwise
+int heartbeat_telemetry_check_leader_failure(heartbeat_telemetry_t *telemetry, uint64_t current_interval_usec) {
+    // Need at least 3 samples to compute meaningful statistics
+    if (telemetry->num_intervals < 3) {
+        return 0;
+    }
+    
+    double mean = compute_mean_interval(telemetry);
+    double std_dev = compute_std_dev_interval(telemetry);
+    
+    // Avoid division by zero
+    if (std_dev < 1.0) {
+        return 0;
+    }
+    
+    // Calculate Z-score for current interval
+    // Z = (X - μ) / σ
+    double z_score = ((double)current_interval_usec - mean) / std_dev;
+    
+    // If current interval is unusually long, leader might have failed
+    // Only check positive Z-scores (intervals longer than expected)
+    if (z_score > LEADER_FAILURE_Z_THRESHOLD) {
+        // Probability that leader is still healthy (CDF from -∞ to current interval)
+        double prob_healthy = gaussian_cdf(z_score);
+        // Probability that leader failed (1 - prob_healthy)
+        double prob_failed = 1.0 - prob_healthy;
+        
+        fprintf(stderr, "[Telemetry] Interval: %llu µs, Mean: %.1f µs, StdDev: %.1f µs, Z-score: %.2f, P(failed): %.4f\n",
+                current_interval_usec, mean, std_dev, z_score, prob_failed);
+        
+        return 1;
+    }
+    
+    return 0;
 }
 
 // MARK: Run Loop
