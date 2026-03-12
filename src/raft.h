@@ -17,7 +17,8 @@
 
 // Heartbeat telemetry configuration
 #define HEARTBEAT_WINDOW_SIZE       10              // Number of intervals to track
-#define LEADER_FAILURE_Z_THRESHOLD  2.5f            // Z-score threshold (2.5 ≈ 99.4% confidence)
+// φ threshold for failure detection (1.0 ≈ 90% confidence)
+#define LEADER_FAILURE_PHI_THRESHOLD 1.0f
 
 typedef enum {
     FOLLOWER,

@@ -244,25 +244,20 @@ static void handle_append_entries_request(raft_node_t *node, append_entries_req_
         // Record the interval for telemetry
         heartbeat_telemetry_record_interval(&node->heartbeat_telemetry, current_time_usec);
         
-        // Check if leader has likely failed based on heartbeat patterns
+        // compute current interval for scoring
+        uint64_t current_interval = 0;
         if (node->heartbeat_telemetry.num_intervals > 0) {
-            uint64_t last_heartbeat = node->heartbeat_telemetry.last_heartbeat_usec;
-            
-            // Calculate the expected interval interval and check if current is anomalous
-            double mean = 0.0;
-            uint32_t num = node->heartbeat_telemetry.num_intervals;
-            if (num > 0) {
-                uint64_t sum = 0;
-                for (uint32_t i = 0; i < num; i++) {
-                    sum += node->heartbeat_telemetry.intervals_usec[i];
-                }
-                mean = (double)sum / (double)num;
+            int idx = (node->heartbeat_telemetry.interval_index + HEARTBEAT_WINDOW_SIZE - 1) % HEARTBEAT_WINDOW_SIZE;
+            current_interval = node->heartbeat_telemetry.intervals_usec[idx];
+        }
+        
+        if (current_interval > 0) {
+            if (heartbeat_telemetry_check_leader_failure(&node->heartbeat_telemetry, current_interval)) {
+                // trigger election immediately
+                fprintf(stderr, "[Node %d] Leader failure detected via φ, starting election\n", node->config.id);
+                become_candidate(node);
+                return; // skip rest of handler
             }
-            
-            // If we've been receiving heartbeats, estimate the next expected time
-            // For now, use mean as baseline and check upcoming timeouts vs mean
-            fprintf(stderr, "[Node %d] Heartbeat received, telemetry: %u intervals collected, mean: %.1f µs\n", 
-                    node->config.id, node->heartbeat_telemetry.num_intervals, mean);
         }
     }
 
@@ -667,7 +662,7 @@ static double compute_mean_interval(const heartbeat_telemetry_t *telemetry) {
     return (double)sum / (double)telemetry->num_intervals;
 }
 
-// [AI] Compute standard deviation of heartbeat intervals
+// [AI] Compute standard deviation of heartbeat intervals (no longer used)
 static double compute_std_dev_interval(const heartbeat_telemetry_t *telemetry) {
     if (telemetry->num_intervals <= 1) {
         return 0.0;
@@ -735,40 +730,35 @@ void heartbeat_telemetry_record_interval(heartbeat_telemetry_t *telemetry, uint6
     }
 }
 
-// [AI] Check if leader has likely failed based on heartbeat interval statistics
+// [AI] Check if leader has likely failed based on φ accrual detector
 // Returns 1 if failure likely, 0 otherwise
 int heartbeat_telemetry_check_leader_failure(heartbeat_telemetry_t *telemetry, uint64_t current_interval_usec) {
-    // Need at least 3 samples to compute meaningful statistics
+    // Need at least 3 samples to compute a reliable mean
     if (telemetry->num_intervals < 3) {
         return 0;
     }
-    
+
     double mean = compute_mean_interval(telemetry);
-    double std_dev = compute_std_dev_interval(telemetry);
-    
-    // Avoid division by zero
-    if (std_dev < 1.0) {
+    if (mean <= 0.0) {
         return 0;
     }
-    
-    // Calculate Z-score for current interval
-    // Z = (X - μ) / σ
-    double z_score = ((double)current_interval_usec - mean) / std_dev;
-    
-    // If current interval is unusually long, leader might have failed
-    // Only check positive Z-scores (intervals longer than expected)
-    if (z_score > LEADER_FAILURE_Z_THRESHOLD) {
-        // Probability that leader is still healthy (CDF from -∞ to current interval)
-        double prob_healthy = gaussian_cdf(z_score);
-        // Probability that leader failed (1 - prob_healthy)
-        double prob_failed = 1.0 - prob_healthy;
-        
-        fprintf(stderr, "[Telemetry] Interval: %llu µs, Mean: %.1f µs, StdDev: %.1f µs, Z-score: %.2f, P(failed): %.4f\n",
-                current_interval_usec, mean, std_dev, z_score, prob_failed);
-        
+
+    // λ = 1 / mean
+    double lambda = 1.0 / mean;
+
+    // φ = -log10( P(interval >= t) )
+    // P(interval >= t) = exp(-λ * t)
+    // φ = -log10(exp(-λ * t)) = (λ * t) * log10(e)
+    double phi = (lambda * (double)current_interval_usec) * 0.4342944819; // log10(e)
+
+    fprintf(stderr, "[Telemetry] Interval: %llu µs, Mean: %.1f µs, φ=%.3f\n",
+            current_interval_usec, mean, phi);
+
+    if (phi > LEADER_FAILURE_PHI_THRESHOLD) {
+        fprintf(stderr, "[Telemetry] φ threshold %.1f exceeded, leader likely failed\n", LEADER_FAILURE_PHI_THRESHOLD);
         return 1;
     }
-    
+
     return 0;
 }
 
