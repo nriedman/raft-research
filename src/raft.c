@@ -237,6 +237,35 @@ static void handle_append_entries_request(raft_node_t *node, append_entries_req_
         node->leader_id = req.leader_id;
     }
 
+    // Record heartbeat interval and check for leader failure (follower only)
+    if (node->role == FOLLOWER) {
+        uint64_t current_time_usec = get_usec();
+        
+        // Record the interval for telemetry
+        heartbeat_telemetry_record_interval(&node->heartbeat_telemetry, current_time_usec);
+        
+        // Check if leader has likely failed based on heartbeat patterns
+        if (node->heartbeat_telemetry.num_intervals > 0) {
+            uint64_t last_heartbeat = node->heartbeat_telemetry.last_heartbeat_usec;
+            
+            // Calculate the expected interval interval and check if current is anomalous
+            double mean = 0.0;
+            uint32_t num = node->heartbeat_telemetry.num_intervals;
+            if (num > 0) {
+                uint64_t sum = 0;
+                for (uint32_t i = 0; i < num; i++) {
+                    sum += node->heartbeat_telemetry.intervals_usec[i];
+                }
+                mean = (double)sum / (double)num;
+            }
+            
+            // If we've been receiving heartbeats, estimate the next expected time
+            // For now, use mean as baseline and check upcoming timeouts vs mean
+            fprintf(stderr, "[Node %d] Heartbeat received, telemetry: %u intervals collected, mean: %.1f µs\n", 
+                    node->config.id, node->heartbeat_telemetry.num_intervals, mean);
+        }
+    }
+
     set_election_timer(node); 
 
     int log_len = node->log.length(node->log.context);
@@ -536,6 +565,10 @@ static void become_follower(raft_node_t *node, uint32_t term, uint32_t leader_id
     node->leader_id = leader_id;
     node->hard_state.set(PF_VOTED_FOR, PF_NO_VOTE_V, node->hard_state.context);
     node->votes_received = 0;
+    
+    // Reset telemetry when becoming a follower
+    heartbeat_telemetry_init(&node->heartbeat_telemetry);
+    
     set_election_timer(node);
 }
 
@@ -544,6 +577,10 @@ static void become_candidate(raft_node_t *node) {
     node->role = CANDIDATE;
     node->leader_id = NO_LEADER;
     node->votes_received = 0;
+    
+    // Reset telemetry when transitioning away from follower
+    heartbeat_telemetry_init(&node->heartbeat_telemetry);
+    
     start_election(node);
 }
 
@@ -551,6 +588,9 @@ static void become_leader(raft_node_t *node) {
     //fprintf(stderr, "[Node %d] Becoming leader for term %d\n", node->config.id, (uint32_t)node->hard_state.get(PF_CURRENT_TERM, node->hard_state.context));
     node->role = LEADER;
     node->leader_id = NO_LEADER;
+
+    // Reset telemetry when transitioning away from follower
+    heartbeat_telemetry_init(&node->heartbeat_telemetry);
 
     int log_len = node->log.length(node->log.context);
     for (unsigned i = 0; i < node->config.num_nodes; i++) {

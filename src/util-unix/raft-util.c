@@ -32,6 +32,9 @@ raft_node_t *raft_create(
 
     nd->running = 1;
 
+    // Initialize heartbeat telemetry
+    heartbeat_telemetry_init(&nd->heartbeat_telemetry);
+
     // Start election timer
     nd->timer.duration_usec = random_timeout_usec(
         ELECTION_INTERVAL_MIN_USEC,
