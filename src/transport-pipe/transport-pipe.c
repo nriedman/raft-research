@@ -50,7 +50,7 @@ static int pipe_receive(const pkt_t *pkt, const uint32_t timeout_ms, void *ctx) 
         return 0;
     
     if (ret < 0) {
-        fprintf(stderr, "<select> returned an error\n");
+        //fprintf(stderr, "<select> returned an error\n");
         return -1;
     }
 

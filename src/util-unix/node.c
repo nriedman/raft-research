@@ -48,8 +48,8 @@ int main(int argc, char **argv) {
             peers_str = argv[++i];
         } else if (strcmp(argv[i], "--a") == 0 && i + 3 < argc) {
             ts = TS_ACCRUAL;
-            fprintf(stderr, "%s", argv[i+1]);
-            fprintf(stderr, ", %f\n", atof(argv[i+1]));
+            //fprintf(stderr, "%s", argv[i+1]);
+            //fprintf(stderr, ", %f\n", atof(argv[i+1]));
             acc_thresh = (double)atof(argv[++i]);
             acc_ws = (uint32_t)atoi(argv[++i]);
             acc_rs = (uint32_t)atoi(argv[++i]);
@@ -61,13 +61,13 @@ int main(int argc, char **argv) {
     }
     
     if (peers_str == NULL) {
-        fprintf(stderr, "Usage: %s --id <id> --peers <p1,p2,...>\n", argv[0]);
-        fprintf(stderr, "Optional:\n");
-        fprintf(stderr, "  --t <lb> <ub>: (Default) Use randomized timeout from [<lb>ms, <ub>ms] (defaults to [150ms, 300ms])\n");
-        fprintf(stderr, "  --a <th> <ws> <rs>:      Use accrual detection with threshold <th>, window size <ws>, and ramp size <rs>.\n");
+        //fprintf(stderr, "Usage: %s --id <id> --peers <p1,p2,...>\n", argv[0]);
+        //fprintf(stderr, "Optional:\n");
+        //fprintf(stderr, "  --t <lb> <ub>: (Default) Use randomized timeout from [<lb>ms, <ub>ms] (defaults to [150ms, 300ms])\n");
+        //fprintf(stderr, "  --a <th> <ws> <rs>:      Use accrual detection with threshold <th>, window size <ws>, and ramp size <rs>.\n");
         return 1;
     } else if (timeout_lb_ms > timeout_ub_ms) {
-        fprintf(stderr, "Error: <lb> (%dms) must be at most <ub> (%dms)\n", timeout_lb_ms, timeout_ub_ms);
+        //fprintf(stderr, "Error: <lb> (%dms) must be at most <ub> (%dms)\n", timeout_lb_ms, timeout_ub_ms);
         return 1;
     }
     
@@ -82,7 +82,7 @@ int main(int argc, char **argv) {
     }
     
     if (id >= num_peers) {
-        fprintf(stderr, "Error: id %u is out of range for %u peers\n", id, num_peers);
+        //fprintf(stderr, "Error: id %u is out of range for %u peers\n", id, num_peers);
         for (uint32_t i = 0; i < num_peers; i++) free(peers[i]);
         free(peers_copy);
         return 1;
@@ -108,7 +108,7 @@ int main(int argc, char **argv) {
 
     raft_node_t *node = raft_create(config, transport, log, pf);
 
-    fprintf(stderr, "[Node %d] Starting with %d peers...\n", node->config.id, num_peers);
+    //fprintf(stderr, "[Node %d] Starting with %d peers...\n", node->config.id, num_peers);
 
     // blocks until done running
     raft_run(node);

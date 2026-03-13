@@ -34,12 +34,12 @@ void signal_handler(int signum) {
 
 int main(int argc, char **argv) {
     if (argc < 6) {
-        fprintf(stderr, "Usage: %s <interval_ms> <duration_sec> <cmd> <peer1,peer2,...> <client_addr>\n", argv[0]);
-        fprintf(stderr, "  interval_ms: milliseconds between requests\n");
-        fprintf(stderr, "  duration_sec: how long to run the benchmark (0 for indefinite)\n");
-        fprintf(stderr, "  cmd: command to send\n");
-        fprintf(stderr, "  peers: comma-separated list of peer addresses\n");
-        fprintf(stderr, "  client_addr: client's own address (e.g., 10.152.0.2:9000)\n");
+        //fprintf(stderr, "Usage: %s <interval_ms> <duration_sec> <cmd> <peer1,peer2,...> <client_addr>\n", argv[0]);
+        //fprintf(stderr, "  interval_ms: milliseconds between requests\n");
+        //fprintf(stderr, "  duration_sec: how long to run the benchmark (0 for indefinite)\n");
+        //fprintf(stderr, "  cmd: command to send\n");
+        //fprintf(stderr, "  peers: comma-separated list of peer addresses\n");
+        //fprintf(stderr, "  client_addr: client's own address (e.g., 10.152.0.2:9000)\n");
         return 1;
     }
 
@@ -59,7 +59,7 @@ int main(int argc, char **argv) {
     }
 
     if (num_peers == 0) {
-        fprintf(stderr, "No peers specified\n");
+        //fprintf(stderr, "No peers specified\n");
         return 1;
     }
 
@@ -93,7 +93,7 @@ int main(int argc, char **argv) {
         fprintf(log_file, "# SeqNo\tSent(usec)\tReceived(usec)\tLatency(ms)\tSuccess\n");
         fflush(log_file);
     } else {
-        fprintf(stderr, "Warning: failed to open client_benchmark.log for writing\n");
+        // fprintf(stderr, "Warning: failed to open client_benchmark.log for writing\n");
     }
 
     printf("Starting benchmark client:\n");
@@ -123,13 +123,13 @@ int main(int argc, char **argv) {
 
         pkt_t pkt;
         if (rpc_pack_proc_req(&pkt, current_leader, CLIENT_ID, &req) != 0) {
-            fprintf(stderr, "Failed to pack request %u\n", req.cmd_seqno);
+            //fprintf(stderr, "Failed to pack request %u\n", req.cmd_seqno);
             usleep(interval_ms * 1000);
             continue;
         }
 
         if (t.send(&pkt, t.context) != 0) {
-            fprintf(stderr, "Failed to send packet %u to node %u\n", req.cmd_seqno, current_leader);
+            //fprintf(stderr, "Failed to send packet %u to node %u\n", req.cmd_seqno, current_leader);
             usleep(interval_ms * 1000);
             continue;
         }

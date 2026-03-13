@@ -68,7 +68,7 @@ static int connect_to_peer(socket_context_t *sctx, uint32_t node_id) {
     
     set_nonblocking(fd);
     
-    fprintf(stderr, "[Node %u] Connecting to Node %u at %s\n", sctx->my_id, node_id, sctx->peer_addrs[node_id]);
+    //fprintf(stderr, "[Node %u] Connecting to Node %u at %s\n", sctx->my_id, node_id, sctx->peer_addrs[node_id]);
     if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
         if (errno != EINPROGRESS) {
             perror("connect");
@@ -159,7 +159,7 @@ static int socket_send(const pkt_t *pkt, void *ctx) {
         goto err_close;
     }
 
-    fprintf(stderr, "[Node %u] Sending pkt to %u, code %u, size %zu\n", sctx->my_id, dst, pkt->header.code, sizeof(*pkt));
+    //fprintf(stderr, "[Node %u] Sending pkt to %u, code %u, size %zu\n", sctx->my_id, dst, pkt->header.code, sizeof(*pkt));
     
     size_t total_sent = 0;
     while (total_sent < sizeof(*pkt)) {
@@ -273,8 +273,8 @@ static int socket_receive(pkt_t *pkt, const uint32_t timeout_ms, void *ctx) {
                 }
                 
                 if (total_read == sizeof(*pkt)) {
-                    fprintf(stderr, "[Node %u] Received pkt from %u, code %u, size %zu\n", 
-                            sctx->my_id, pkt->header.src, pkt->header.code, total_read);
+                    //fprintf(stderr, "[Node %u] Received pkt from %u, code %u, size %zu\n", 
+                            // sctx->my_id, pkt->header.src, pkt->header.code, total_read);
                     if (pkt->header.src >= sctx->num_nodes) {
                         int old_fd = sctx->client_fds[pkt->header.src % MAX_CONNECTIONS];
                         if (old_fd != -1 && old_fd != fd) {
@@ -330,7 +330,7 @@ transport_t transport_socket_init(uint32_t id, const char **peers, uint32_t num_
     
     struct sockaddr_in addr;
     if (parse_addr(peers[id], &addr) < 0) {
-        fprintf(stderr, "Failed to parse self address: %s\n", peers[id]);
+        //fprintf(stderr, "Failed to parse self address: %s\n", peers[id]);
         exit(1);
     }
     addr.sin_addr.s_addr = htonl(INADDR_ANY);

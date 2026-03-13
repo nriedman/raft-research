@@ -84,11 +84,11 @@ int heartbeat_telemetry_check_leader_failure(heartbeat_telemetry_t *telemetry) {
     // φ = -log10(exp(-λ * t)) = (λ * t) * log10(e)
     double phi = (lambda * (double)current_interval_usec) * 0.4342944819; // log10(e)
 
-    fprintf(stderr, "[Telemetry] Interval: %llu µs, Mean: %.1f µs, φ=%.3f\n",
-            current_interval_usec, mean, phi);
+    //fprintf(stderr, "[Telemetry] Interval: %llu µs, Mean: %.1f µs, φ=%.3f\n",
+            // current_interval_usec, mean, phi);
 
     if (phi > telemetry->threshold) {
-        fprintf(stderr, "[Telemetry] φ threshold %.1f exceeded, leader likely failed\n", telemetry->threshold);
+        //fprintf(stderr, "[Telemetry] φ threshold %.1f exceeded, leader likely failed\n", telemetry->threshold);
         return 1;
     }
 

@@ -11,7 +11,7 @@
 
 int main(int argc, char **argv) {
     if (argc < 4) {
-        fprintf(stderr, "Usage: %s <cmd> <peer1,peer2,...> <client-ip:port>\n", argv[0]);
+        //fprintf(stderr, "Usage: %s <cmd> <peer1,peer2,...> <client-ip:port>\n", argv[0]);
         return 1;
     }
 
@@ -49,19 +49,19 @@ int main(int argc, char **argv) {
     int attempts = 0;
     while (attempts < 2) {
         if (target_node >= num_peers) {
-            fprintf(stderr, "Target node %u out of range\n", target_node);
+            //fprintf(stderr, "Target node %u out of range\n", target_node);
             break;
         }
         printf("Sending command %u to node %u...\n", cmd, target_node);
         
         pkt_t pkt;
         if (rpc_pack_proc_req(&pkt, target_node, CLIENT_ID, &req) != 0) {
-            fprintf(stderr, "Failed to pack request\n");
+            //fprintf(stderr, "Failed to pack request\n");
             break;
         }
 
         if (t.send(&pkt, t.context) != 0) {
-            fprintf(stderr, "Failed to send packet to node %u\n", target_node);
+            //fprintf(stderr, "Failed to send packet to node %u\n", target_node);
             break;
         }
 
@@ -69,18 +69,18 @@ int main(int argc, char **argv) {
         pkt_t res_pkt;
         int ret = t.receive(&res_pkt, 10000, t.context);
         if (ret <= 0) {
-            fprintf(stderr, "Timeout or error receiving response from node %u\n", target_node);
+            //fprintf(stderr, "Timeout or error receiving response from node %u\n", target_node);
             break;
         }
 
         if (res_pkt.header.code != RPC_RESP_PROC) {
-            fprintf(stderr, "Received unexpected RPC code: %u\n", res_pkt.header.code);
+            //fprintf(stderr, "Received unexpected RPC code: %u\n", res_pkt.header.code);
             break;
         }
 
         proc_res_t res;
         if (rpc_unpack_proc_res(&res_pkt, &res) != 0) {
-            fprintf(stderr, "Failed to unpack response\n");
+            //fprintf(stderr, "Failed to unpack response\n");
             break;
         }
 
@@ -93,7 +93,7 @@ int main(int argc, char **argv) {
                 target_node = res.leader_hint;
                 attempts++;
             } else {
-                fprintf(stderr, "Invalid leader hint received\n");
+                //fprintf(stderr, "Invalid leader hint received\n");
                 break;
             }
         }

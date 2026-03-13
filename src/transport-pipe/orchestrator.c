@@ -26,7 +26,7 @@ static int forward_pkt(int tx_fd, int pipe_to_node[][2], const unsigned N) {
         return -1;
 
     if (pkt.header.dst >= N) {
-        fprintf(stderr, "[Orchestrator] Invalid destination: %u (max: %d)\n", 
+        //fprintf(stderr, "[Orchestrator] Invalid destination: %u (max: %d)\n", 
                 pkt.header.dst, N - 1);
         return -1;
     }
@@ -50,7 +50,7 @@ static void shutdown_all_nodes(int pipe_to_node[][2], const int N) {
     for (int i = 0; i < N; i++) {
         ssize_t n = write(pipe_to_node[i][WRITE_END], &shutdown_pkt, sizeof(shutdown_pkt));
         if (n != sizeof(shutdown_pkt)) {
-            fprintf(stderr, "[Orchestrator] Warning: shutdown write to node %d failed\n", i);
+            //fprintf(stderr, "[Orchestrator] Warning: shutdown write to node %d failed\n", i);
         }
     }
 }
@@ -77,7 +77,7 @@ static void orchestra_loop(int pipe_to_node[][2], int pipe_from_node[][2], const
         // TODO: this is temporary to slow down the process
         sleep(1);
 
-        fprintf(stderr, "-------------<%d>------------\n", cnt);
+        //fprintf(stderr, "-------------<%d>------------\n", cnt);
 
         // wait for tx events (only need to watch <pipe_from_node>)
         struct timeval timeout;
@@ -87,12 +87,12 @@ static void orchestra_loop(int pipe_to_node[][2], int pipe_from_node[][2], const
         int ret = select(FD_SETSIZE, &tx_set, NULL, NULL, &timeout);
 
         if (ret == 0) {
-            fprintf(stderr, "[Orchestrator] Timeout\n");
+            //fprintf(stderr, "[Orchestrator] Timeout\n");
             break;
         }
 
         if (ret < 0) {
-            fprintf(stderr, "[Orchestrator] Select error\n");
+            //fprintf(stderr, "[Orchestrator] Select error\n");
             break;
         }
 
@@ -103,7 +103,7 @@ static void orchestra_loop(int pipe_to_node[][2], int pipe_from_node[][2], const
             if (FD_ISSET(pipe_from_node[i][READ_END], &tx_set)) {
                 int rc = forward_pkt(pipe_from_node[i][READ_END], pipe_to_node, N);
                 if (rc < 0) {
-                    fprintf(stderr, "[Orchestrator] Packet forward unsuccessful\n");
+                    //fprintf(stderr, "[Orchestrator] Packet forward unsuccessful\n");
                     orchestrator_running = 0;
                     break;
                 }
@@ -111,7 +111,7 @@ static void orchestra_loop(int pipe_to_node[][2], int pipe_from_node[][2], const
         }
     }
 
-    fprintf(stderr, "[Orchestrator] Loop exited, shutting down nodes\n");
+    //fprintf(stderr, "[Orchestrator] Loop exited, shutting down nodes\n");
     shutdown_all_nodes(pipe_to_node, N);
 }
 
@@ -119,7 +119,7 @@ int main(int argc, char **argv) {
 
     // 0. parse arguments
     if (argc != 2) {
-        fprintf(stderr, "Usage: %s <num_nodes>\n", argv[0]);
+        //fprintf(stderr, "Usage: %s <num_nodes>\n", argv[0]);
         return 1;
     }
 
@@ -203,7 +203,7 @@ int main(int argc, char **argv) {
         close(pipe_from_node[i][READ_END]);
     }
 
-    fprintf(stderr, "[Orchestrator] Success!\n");
+    //fprintf(stderr, "[Orchestrator] Success!\n");
 
     return 0;
 }

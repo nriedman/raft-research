@@ -37,7 +37,7 @@ static int apply_log_entry_to_sm(log_entry_t *entry, void *ctx) {
     if (ctx)
         node_id = *(int *)ctx;
     
-    fprintf(stderr, "[Node %d] Applying <%x> to state machine\n", node_id, entry->cmd);
+    //fprintf(stderr, "[Node %d] Applying <%x> to state machine\n", node_id, entry->cmd);
     return 0;
 }
 
