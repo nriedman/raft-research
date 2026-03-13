@@ -8,7 +8,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
-#include <sys/select.h>
+#include <poll.h>
 #include <fcntl.h>
 
 #define MAX_CONNECTIONS 1024
@@ -100,44 +100,45 @@ static int socket_send(const pkt_t *pkt, void *ctx) {
     
     if (fd == -1) return -1;
     
-    fd_set rfds, wfds;
-    struct timeval tv;
-    int max_fd;
-    
+    // Use poll instead of select to avoid FD_SETSIZE limitations.
+    struct pollfd fds[2];
+    int nfds = 0;
+
+    fds[nfds].fd = fd;
+    fds[nfds].events = POLLOUT;
+    nfds++;
+
+    fds[nfds].fd = sctx->listen_fd;
+    fds[nfds].events = POLLIN;
+    nfds++;
+
     // We loop here because we might accept new connections while waiting to send
     while (1) {
-        FD_ZERO(&rfds);
-        FD_ZERO(&wfds);
-        FD_SET(fd, &wfds);
-        FD_SET(sctx->listen_fd, &rfds);
-        max_fd = (fd > sctx->listen_fd) ? fd : sctx->listen_fd;
-        
-        tv.tv_sec = 0;
-        tv.tv_usec = 100000; // 100ms wait
-        
-        int ret = select(max_fd + 1, &rfds, &wfds, NULL, &tv);
-        if (ret > 0) {
-            if (FD_ISSET(sctx->listen_fd, &rfds)) {
-                while (1) {
-                    int new_fd = accept(sctx->listen_fd, NULL, NULL);
-                    if (new_fd < 0) break;
-                    set_nonblocking(new_fd);
-                    if (sctx->num_active < MAX_CONNECTIONS) {
-                        sctx->active_fds[sctx->num_active++] = new_fd;
-                    } else {
-                        close(new_fd);
-                    }
-                }
-                // Check if fd is also ready, if not, select again
-                if (!FD_ISSET(fd, &wfds)) continue;
-            }
-            if (FD_ISSET(fd, &wfds)) break; // Ready to send
-        } else if (ret == 0) {
-            return -1; // Timeout
-        } else {
+        int ret = poll(fds, nfds, 100); // 100ms
+        if (ret < 0) {
             if (errno == EINTR) continue;
-            perror("select in socket_send");
+            perror("poll in socket_send");
             return -1;
+        }
+        if (ret == 0) {
+            return -1; // Timeout
+        }
+
+        if (fds[1].revents & POLLIN) {
+            while (1) {
+                int new_fd = accept(sctx->listen_fd, NULL, NULL);
+                if (new_fd < 0) break;
+                set_nonblocking(new_fd);
+                if (sctx->num_active < MAX_CONNECTIONS) {
+                    sctx->active_fds[sctx->num_active++] = new_fd;
+                } else {
+                    close(new_fd);
+                }
+            }
+        }
+
+        if (fds[0].revents & POLLOUT) {
+            break; // Ready to send
         }
     }
     
@@ -159,13 +160,11 @@ static int socket_send(const pkt_t *pkt, void *ctx) {
         } else if (n < 0) {
             if (errno == EINTR) continue;
             if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                // Wait for writability again if we hit EAGAIN mid-packet
-                fd_set w;
-                FD_ZERO(&w);
-                FD_SET(fd, &w);
-                struct timeval t = {0, 10000};
-                if (select(fd + 1, NULL, &w, NULL, &t) <= 0) {
-                    // If we can't write for 10ms, just fail this packet
+                // Wait (briefly) for writability with poll
+                struct pollfd pfd = { .fd = fd, .events = POLLOUT };
+                int pret = poll(&pfd, 1, 10); // 10ms
+                if (pret <= 0) {
+                    // If we can't write, fail this packet
                     goto err_close;
                 }
                 continue;
@@ -189,38 +188,37 @@ err_close:
 
 static int socket_receive(pkt_t *pkt, const uint32_t timeout_ms, void *ctx) {
     socket_context_t *sctx = (socket_context_t *)ctx;
-    
-    uint64_t start_time = get_usec();
-    uint64_t deadline = start_time + (uint64_t)timeout_ms * 1000;
 
-    while (1) {
-        uint64_t now = get_usec();
-        if (now >= deadline) return 0;
-        uint32_t remaining_ms = (uint32_t)((deadline - now) / 1000);
+    uint64_t deadline = get_usec() + (uint64_t)timeout_ms * 1000;
 
-        fd_set read_fds;
-        int max_fd = sctx->listen_fd;
-        FD_ZERO(&read_fds);
-        FD_SET(sctx->listen_fd, &read_fds);
-        
+    while (get_usec() < deadline) {
+        uint32_t remaining_ms = (uint32_t)((deadline - get_usec()) / 1000);
+
+        // Use poll to avoid FD_SETSIZE limitations.
+        int nfds = 0;
+        struct pollfd fds[MAX_CONNECTIONS + 1];
+
+        fds[nfds].fd = sctx->listen_fd;
+        fds[nfds].events = POLLIN;
+        nfds++;
+
         for (int i = 0; i < sctx->num_active; i++) {
-            FD_SET(sctx->active_fds[i], &read_fds);
-            if (sctx->active_fds[i] > max_fd) max_fd = sctx->active_fds[i];
+            fds[nfds].fd = sctx->active_fds[i];
+            fds[nfds].events = POLLIN;
+            nfds++;
         }
-        
-        struct timeval timeout;
-        timeout.tv_sec = remaining_ms / 1000;
-        timeout.tv_usec = (remaining_ms % 1000) * 1000;
-        
-        int ret = select(max_fd + 1, &read_fds, NULL, NULL, &timeout);
-        if (ret == 0) return 0;
+
+        int timeout = (int)remaining_ms;
+        int ret = poll(fds, nfds, timeout);
+        if (ret == 0) continue;
         if (ret < 0) {
             if (errno == EINTR) continue;
-            perror("select in socket_receive");
+            perror("poll in socket_receive");
             return -1;
         }
-        
-        if (FD_ISSET(sctx->listen_fd, &read_fds)) {
+
+        // Accept new incoming connections
+        if (fds[0].revents & POLLIN) {
             while (1) {
                 int new_fd = accept(sctx->listen_fd, NULL, NULL);
                 if (new_fd < 0) break;
@@ -231,73 +229,70 @@ static int socket_receive(pkt_t *pkt, const uint32_t timeout_ms, void *ctx) {
                     close(new_fd);
                 }
             }
-            // Fall through to check data on active_fds, including those just accepted
-            // but wait, read_fds was captured BEFORE accept. So we need to re-select
-            // or just loop back. Let's loop back to be safe.
-            continue;
         }
-        
-        for (int i = 0; i < sctx->num_active; i++) {
-            int fd = sctx->active_fds[i];
-            if (FD_ISSET(fd, &read_fds)) {
-                size_t total_read = 0;
-                while (total_read < sizeof(*pkt)) {
-                    ssize_t n = read(fd, (char *)pkt + total_read, sizeof(*pkt) - total_read);
-                    if (n > 0) {
-                        total_read += n;
-                    } else if (n < 0) {
-                        if (errno == EINTR) continue;
-                        if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                            if (total_read > 0) {
-                                // Busy wait briefly for the rest of the packet
-                                usleep(1000);
-                                if (get_usec() > deadline) goto err_recv;
-                                continue;
-                            }
-                            break; 
-                        }
-                        goto err_recv;
-                    } else {
-                        goto err_recv;
-                    }
-                }
-                
-                if (total_read == sizeof(*pkt)) {
-                    fprintf(stderr, "[Node %u] Received pkt from %u, code %u, size %zu\n", 
-                            sctx->my_id, pkt->header.src, pkt->header.code, total_read);
-                    if (pkt->header.src >= sctx->num_nodes) {
-                        int old_fd = sctx->client_fds[pkt->header.src % MAX_CONNECTIONS];
-                        if (old_fd != -1 && old_fd != fd) {
-                            close(old_fd);
-                            remove_active_fd(sctx, old_fd);
-                        }
-                        sctx->client_fds[pkt->header.src % MAX_CONNECTIONS] = fd;
-                    } else {
-                        int old_fd = sctx->peer_fds[pkt->header.src];
-                        if (old_fd != -1 && old_fd != fd) {
-                            close(old_fd);
-                            remove_active_fd(sctx, old_fd);
-                        }
-                        sctx->peer_fds[pkt->header.src] = fd;
-                    }
-                    return 1;
-                }
-                
-                continue; 
 
-            err_recv:
-                close(fd);
-                remove_active_fd(sctx, fd);
-                for (uint32_t j = 0; j < sctx->num_nodes; j++) {
-                    if (sctx->peer_fds[j] == fd) sctx->peer_fds[j] = -1;
+        // Read from active connections
+        for (int i = 1; i < nfds; i++) {
+            int fd = fds[i].fd;
+            if (!(fds[i].revents & POLLIN)) continue;
+
+            size_t total_read = 0;
+            while (total_read < sizeof(*pkt)) {
+                ssize_t n = read(fd, (char *)pkt + total_read, sizeof(*pkt) - total_read);
+                if (n > 0) {
+                    total_read += n;
+                    continue;
                 }
-                for (int j = 0; j < MAX_CONNECTIONS; j++) {
-                    if (sctx->client_fds[j] == fd) sctx->client_fds[j] = -1;
+
+                if (n == 0) {
+                    // Peer closed connection
+                    break;
                 }
-                i--;
+
+                if (errno == EINTR) continue;
+                if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                    // Would block; try again later
+                    break;
+                }
+
+                // Fatal error; close connection
+                break;
+            }
+
+            if (total_read == sizeof(*pkt)) {
+                fprintf(stderr, "[Node %u] Received pkt from %u, code %u, size %zu\n",
+                        sctx->my_id, pkt->header.src, pkt->header.code, total_read);
+                if (pkt->header.src >= sctx->num_nodes) {
+                    int old_fd = sctx->client_fds[pkt->header.src % MAX_CONNECTIONS];
+                    if (old_fd != -1 && old_fd != fd) {
+                        close(old_fd);
+                        remove_active_fd(sctx, old_fd);
+                    }
+                    sctx->client_fds[pkt->header.src % MAX_CONNECTIONS] = fd;
+                } else {
+                    int old_fd = sctx->peer_fds[pkt->header.src];
+                    if (old_fd != -1 && old_fd != fd) {
+                        close(old_fd);
+                        remove_active_fd(sctx, old_fd);
+                    }
+                    sctx->peer_fds[pkt->header.src] = fd;
+                }
+                return 1;
+            }
+
+            // If we reach here, we had an error or close; clean up
+            close(fd);
+            remove_active_fd(sctx, fd);
+            for (uint32_t j = 0; j < sctx->num_nodes; j++) {
+                if (sctx->peer_fds[j] == fd) sctx->peer_fds[j] = -1;
+            }
+            for (int j = 0; j < MAX_CONNECTIONS; j++) {
+                if (sctx->client_fds[j] == fd) sctx->client_fds[j] = -1;
             }
         }
     }
+
+    return 0;
 }
 
 transport_t transport_socket_init(uint32_t id, const char **peers, uint32_t num_peers) {
