@@ -113,7 +113,7 @@ static int socket_send(const pkt_t *pkt, void *ctx) {
         max_fd = (fd > sctx->listen_fd) ? fd : sctx->listen_fd;
         
         tv.tv_sec = 0;
-        tv.tv_usec = 100000; // 100ms wait
+        tv.tv_usec = 1000000; // 1000ms wait
         
         int ret = select(max_fd + 1, &rfds, &wfds, NULL, &tv);
         if (ret > 0) {
