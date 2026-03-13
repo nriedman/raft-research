@@ -32,13 +32,13 @@ BENCHMARK_CLIENT_OBJS := $(patsubst src/%.c,objs/%.o,$(BENCHMARK_CLIENT_SRCS))
 all: raft-node raft-client benchmark-client
 
 raft-node: $(NODE_OBJS)
-	$(CC) -o $@ $^
+	$(CC) -o $@ $^ -lm
 
 raft-client: $(CLIENT_OBJS)
-	$(CC) -o $@ $^
+	$(CC) -o $@ $^ -lm
 
 benchmark-client: $(BENCHMARK_CLIENT_OBJS)
-	$(CC) -o $@ $^
+	$(CC) -o $@ $^ -lm
 
 # Pattern rule to compile .c files from src/ to .o files in objs/
 objs/%.o: src/%.c
