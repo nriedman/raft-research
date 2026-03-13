@@ -269,7 +269,7 @@ static void handle_append_entries_request(raft_node_t *node, append_entries_req_
     }
 
     if (req.leader_commit > node->commit_index) {
-        fprintf(stderr, "[Node %d] Increasing commit index from <old=%d> to <new=%d>\n", node->config.id, req.leader_commit, node->commit_index);
+        fprintf(stderr, "[Node %d] Increasing commit index from <old=%d> to <new=%d>\n", node->config.id, node->commit_index, req.leader_commit);
         int last_new_entry_idx = req.prev_log_idx + req.n_entries;
         node->commit_index = req.leader_commit < last_new_entry_idx ? req.leader_commit : last_new_entry_idx;
         apply_to_state_machine(node);
