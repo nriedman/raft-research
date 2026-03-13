@@ -21,6 +21,8 @@ typedef struct {
     double threshold;                                 // Phi accrual fault threshold
     uint32_t interval_index;                          // Current index in circular buffer
     uint32_t num_intervals;                           // Number of intervals collected (increases until window full)
+    double sum_intervals;                             // Sum of intervals for running mean
+    double sum_squares_intervals;                     // Sum of squares of intervals for running variance
     uint64_t last_heartbeat_usec;                     // Timestamp of last received heartbeat
 } heartbeat_telemetry_t;
 
