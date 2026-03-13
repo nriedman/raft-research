@@ -483,55 +483,61 @@ static void raft_handle_rpc(raft_node_t *node, pkt_t *rpc_pkt) {
         case RPC_CALL_APPEND_ENT: {
             //fprintf(stderr, "[Node %d] Processing append entries request from Node %d\n", node->config.id, rpc_pkt->header.src);
             append_entries_req_t req;
-            if (rpc_unpack_append_entries_req(rpc_pkt, &req) == 0)
+            if (rpc_unpack_append_entries_req(rpc_pkt, &req) == 0) {
                 handle_append_entries_request(node, req);
-            else
+            } else {
                 //fprintf(stderr, "[Node %d] Failed to unpack append entries request\n", node->config.id);
+            }
             break;
         }
         case RPC_RESP_APPEND_ENT: {
             //fprintf(stderr, "[Node %d] Processing append entries response from Node %d\n", node->config.id, rpc_pkt->header.src);
             append_entries_res_t resp;
-            if (rpc_unpack_append_entries_res(rpc_pkt, &resp) == 0)
+            if (rpc_unpack_append_entries_res(rpc_pkt, &resp) == 0) {
                 handle_append_entries_response(node, rpc_pkt->header.src, resp);
-            else
+            } else {
                 //fprintf(stderr, "[Node %d] Failed to unpack append entries response\n", node->config.id);
+            }
             break;
         }
         case RPC_CALL_REQ_VOTE: {
             //fprintf(stderr, "[Node %d] Processing request vote request from Node %d\n", node->config.id, rpc_pkt->header.src);
             request_vote_req_t req;
-            if (rpc_unpack_request_vote_req(rpc_pkt, &req) == 0)
+            if (rpc_unpack_request_vote_req(rpc_pkt, &req) == 0) {
                 handle_request_vote_request(node, rpc_pkt->header.src, req);
-            else
+            } else {
                 //fprintf(stderr, "[Node %d] Failed to unpack request vote request\n", node->config.id);
+            }
             break;
         }
         case RPC_RESP_REQ_VOTE: {
             //fprintf(stderr, "[Node %d] Processing request vote response from Node %d\n", node->config.id, rpc_pkt->header.src);
             request_vote_res_t resp;
-            if (rpc_unpack_request_vote_res(rpc_pkt, &resp) == 0)
+            if (rpc_unpack_request_vote_res(rpc_pkt, &resp) == 0) {
                 handle_request_vote_response(node, rpc_pkt->header.src, resp);
-            else
+            } else {
                 //fprintf(stderr, "[Node %d] Failed to unpack request vote response\n", node->config.id);
+            }
             break;
         }
         case RPC_CALL_PROC: {
             //fprintf(stderr, "[Node %d] Processing proc request from Node %d\n", node->config.id, rpc_pkt->header.src);
             proc_req_t req;
-            if (rpc_unpack_proc_req(rpc_pkt, &req) == 0)
+            if (rpc_unpack_proc_req(rpc_pkt, &req) == 0) {
                 handle_proc_request(node, req, rpc_pkt->header.src);
-            else
+            } else {
                 //fprintf(stderr, "[Node %d] Failed to unpack proc request\n", node->config.id);
+            }
             break;
         }
         case RPC_RESP_PROC: {
             //fprintf(stderr, "[Node %d] Processing proc response from Node %d\n", node->config.id, rpc_pkt->header.src);
             proc_res_t resp;
-            if (rpc_unpack_proc_res(rpc_pkt, &resp) == 0)
+            if (rpc_unpack_proc_res(rpc_pkt, &resp) == 0) {
                 handle_proc_response(node, resp);
-            else
+            } else {
                 //fprintf(stderr, "[Node %d] Failed to unpack proc response\n", node->config.id);
+            }
             break;
         }
         default: {
