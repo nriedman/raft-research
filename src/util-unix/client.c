@@ -10,14 +10,15 @@
 #define CLIENT_ID 999
 
 int main(int argc, char **argv) {
-    if (argc < 3) {
-        fprintf(stderr, "Usage: %s <cmd> <peer1,peer2,...>\n", argv[0]);
+    if (argc < 4) {
+        fprintf(stderr, "Usage: %s <cmd> <peer1,peer2,...> <client-ip:port>\n", argv[0]);
         return 1;
     }
 
     uint32_t cmd = atoi(argv[1]);
     char *peers_str = strdup(argv[2]);
-    
+    char *client_addr = argv[3];
+
     // Parse peers
     char *peers[16];
     uint32_t num_peers = 0;
@@ -27,13 +28,12 @@ int main(int argc, char **argv) {
         token = strtok(NULL, ",");
     }
 
-    // Initialize transport. 
+    // Initialize transport.
     // We use a high ID for ourselves so we don't clash with nodes.
-    char *client_addr = "127.0.0.1:9000";
     char *all_addrs[17];
     for (uint32_t i = 0; i < num_peers; i++) all_addrs[i] = peers[i];
     all_addrs[num_peers] = client_addr;
-    
+
     transport_t t = transport_socket_init(num_peers, (const char **)all_addrs, num_peers + 1);
 
     srand(time(NULL));
