@@ -323,6 +323,7 @@ transport_t transport_socket_init(uint32_t id, const char **peers, uint32_t num_
         fprintf(stderr, "Failed to parse self address: %s\n", peers[id]);
         exit(1);
     }
+    addr.sin_addr.s_addr = htonl(INADDR_ANY);
     
     ctx->listen_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (ctx->listen_fd < 0) { perror("socket"); exit(1); }
