@@ -101,20 +101,10 @@ static int socket_send(const pkt_t *pkt, void *ctx) {
     if (fd == -1) return -1;
     
     // Use poll instead of select to avoid FD_SETSIZE limitations.
-    struct pollfd fds[2];
-    int nfds = 0;
+    struct pollfd pfd = { .fd = fd, .events = POLLOUT };
 
-    fds[nfds].fd = fd;
-    fds[nfds].events = POLLOUT;
-    nfds++;
-
-    fds[nfds].fd = sctx->listen_fd;
-    fds[nfds].events = POLLIN;
-    nfds++;
-
-    // We loop here because we might accept new connections while waiting to send
     while (1) {
-        int ret = poll(fds, nfds, 100); // 100ms
+        int ret = poll(&pfd, 1, 100); // 100ms
         if (ret < 0) {
             if (errno == EINTR) continue;
             perror("poll in socket_send");
@@ -124,20 +114,7 @@ static int socket_send(const pkt_t *pkt, void *ctx) {
             return -1; // Timeout
         }
 
-        if (fds[1].revents & POLLIN) {
-            while (1) {
-                int new_fd = accept(sctx->listen_fd, NULL, NULL);
-                if (new_fd < 0) break;
-                set_nonblocking(new_fd);
-                if (sctx->num_active < MAX_CONNECTIONS) {
-                    sctx->active_fds[sctx->num_active++] = new_fd;
-                } else {
-                    close(new_fd);
-                }
-            }
-        }
-
-        if (fds[0].revents & POLLOUT) {
+        if (pfd.revents & POLLOUT) {
             break; // Ready to send
         }
     }
