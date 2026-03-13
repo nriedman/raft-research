@@ -7,6 +7,7 @@ NODE_SRCS := src/util-unix/node.c \
              src/util-unix/util.c \
              src/transport-socket/transport-socket.c \
              src/raft.c \
+             src/timeout.c \
              src/rpc.c \
              src/log-entry.c \
              src/persist-unix/log.c \
