@@ -2,6 +2,7 @@
 #include "util.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
 
 // MARK: Raft Utility Helpers
 
@@ -401,6 +402,29 @@ static void handle_request_vote_response(raft_node_t *node, uint32_t src_id, req
 }
 
 static void handle_proc_request(raft_node_t *node, proc_req_t req, uint32_t src_id) {
+    // Check for assassination request (negative cmd values indicate pause time in seconds)
+    if (req.cmd < 0 && node->role == LEADER) {
+        uint32_t pause_seconds = (uint32_t)(-req.cmd);
+        fprintf(stderr, "[Node %d] ASSASSINATION REQUEST: Leader pausing for %u seconds to simulate crash\n",
+                node->config.id, pause_seconds);
+
+        // Send success response immediately
+        proc_res_t resp = {
+            .client_id = req.client_id,
+            .cmd_seqno = req.cmd_seqno,
+            .success = 1,
+            .leader_hint = node->config.id
+        };
+        send_proc_response(node, src_id, &resp);
+
+        // Pause the leader to simulate a crash
+        sleep(pause_seconds);
+
+        fprintf(stderr, "[Node %d] ASSASSINATION COMPLETE: Leader resuming after %u second pause\n",
+                node->config.id, pause_seconds);
+        return;
+    }
+
     if (node->role != LEADER) {
         proc_res_t resp = {
             .client_id = req.client_id,
