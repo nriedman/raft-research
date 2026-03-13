@@ -49,6 +49,25 @@ int main(int argc, char **argv) {
     char *peers_str = strdup(argv[4]);
     char *client_addr = argv[5];
 
+    // Parse peers
+    char *peers[16];
+    uint32_t num_peers = 0;
+    char *token = strtok(peers_str, ",");
+    while (token && num_peers < 16) {
+        peers[num_peers++] = strdup(token);
+        token = strtok(NULL, ",");
+    }
+
+    if (num_peers == 0) {
+        fprintf(stderr, "No peers specified\n");
+        return 1;
+    }
+
+    // Initialize transport
+    char *all_addrs[17];
+    for (uint32_t i = 0; i < num_peers; i++) all_addrs[i] = peers[i];
+    all_addrs[num_peers] = client_addr;
+
     transport_t t = transport_socket_init(num_peers, (const char **)all_addrs, num_peers + 1);
 
     // Setup signal handler for graceful shutdown
@@ -154,7 +173,7 @@ int main(int argc, char **argv) {
             if (success && received_usec > 0) {
                 latency_ms = (received_usec - sent_usec) / 1000.0;
             }
-            fprintf(log_file, "%u\t%llu\t%llu\t%.1f\t%d\n",
+            fprintf(log_file, "%u\t%lu\t%lu\t%.1f\t%d\n",
                     req.cmd_seqno,
                     sent_usec,
                     received_usec,
