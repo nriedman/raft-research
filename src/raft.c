@@ -14,6 +14,21 @@ static void become_follower(raft_node_t *node, uint32_t term, uint32_t leader_id
 static void become_candidate(raft_node_t *node);
 static void become_leader(raft_node_t *node);
 
+static void telemetry_log(uint32_t node_id, const char *event, uint32_t term, uint64_t val) {
+    char filename[64];
+    snprintf(filename, sizeof(filename), "telemetry_node_%u.csv", node_id);
+    
+    FILE *f = fopen(filename, "a");
+    if (f) {
+        fseek(f, 0, SEEK_END);
+        if (ftell(f) == 0) {
+            fprintf(f, "node_id,timestamp_usec,event,term,value\n");
+        }
+        fprintf(f, "%u,%llu,%s,%u,%llu\n", node_id, get_usec(), event, term, val);
+        fclose(f);
+    }
+}
+
 static uint32_t raft_get_log_term(raft_node_t *node, int log_idx) {
     if (log_idx < 0) {
         return 0; // Term of the "entry" before the first one is 0
@@ -241,9 +256,17 @@ static void handle_append_entries_request(raft_node_t *node, append_entries_req_
     // Record heartbeat interval and check for leader failure (follower only)
     if (node->role == FOLLOWER) {
         uint64_t current_time_usec = get_usec();
+        uint64_t interval = 0;
+        if (node->heartbeat_telemetry.last_heartbeat_usec != 0) {
+            interval = current_time_usec - node->heartbeat_telemetry.last_heartbeat_usec;
+        }
         
         // Record the interval for telemetry
         heartbeat_telemetry_record_interval(&node->heartbeat_telemetry, current_time_usec);
+
+        if (interval > 0) {
+            telemetry_log(node->config.id, "heartbeat", cur_term, interval);
+        }
     }
 
     set_fault_detect_timer(node); 
@@ -565,7 +588,12 @@ static void become_candidate(raft_node_t *node) {
 }
 
 static void become_leader(raft_node_t *node) {
-    fprintf(stderr, "[Node %d] Becoming leader for term %d\n", node->config.id, (uint32_t)node->hard_state.get(PF_CURRENT_TERM, node->hard_state.context));
+    uint32_t cur_term = (uint32_t)node->hard_state.get(PF_CURRENT_TERM, node->hard_state.context);
+    fprintf(stderr, "[Node %d] Becoming leader for term %d\n", node->config.id, cur_term);
+    
+    // Log telemetry for experiment
+    telemetry_log(node->config.id, "became_leader", cur_term, 0);
+
     node->role = LEADER;
     node->leader_id = NO_LEADER;
 
