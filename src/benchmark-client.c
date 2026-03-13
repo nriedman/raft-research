@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
 #include <time.h>
 #include <unistd.h>
 #include <signal.h>
@@ -8,6 +9,12 @@
 #include "rpc.h"
 #include "transport-socket/transport-socket.h"
 #include "util.h"
+
+static int compare_doubles(const void *a, const void *b) {
+    double da = *(const double *)a;
+    double db = *(const double *)b;
+    return (da < db) ? -1 : (da > db) ? 1 : 0;
+}
 
 #define CLIENT_ID 999
 
@@ -26,12 +33,13 @@ void signal_handler(int signum) {
 }
 
 int main(int argc, char **argv) {
-    if (argc < 5) {
-        fprintf(stderr, "Usage: %s <interval_ms> <duration_sec> <cmd> <peer1,peer2,...>\n", argv[0]);
+    if (argc < 6) {
+        fprintf(stderr, "Usage: %s <interval_ms> <duration_sec> <cmd> <peer1,peer2,...> <client_addr>\n", argv[0]);
         fprintf(stderr, "  interval_ms: milliseconds between requests\n");
-        fprintf(stderr, "  duration_sec: how long to run the benchmark\n");
+        fprintf(stderr, "  duration_sec: how long to run the benchmark (0 for indefinite)\n");
         fprintf(stderr, "  cmd: command to send\n");
         fprintf(stderr, "  peers: comma-separated list of peer addresses\n");
+        fprintf(stderr, "  client_addr: client's own address (e.g., 10.152.0.2:9000)\n");
         return 1;
     }
 
@@ -39,6 +47,7 @@ int main(int argc, char **argv) {
     uint32_t duration_sec = atoi(argv[2]);
     uint32_t cmd = atoi(argv[3]);
     char *peers_str = strdup(argv[4]);
+    char *client_addr = argv[5];
 
     // Parse peers
     char *peers[16];
@@ -55,7 +64,6 @@ int main(int argc, char **argv) {
     }
 
     // Initialize transport
-    char *client_addr = "127.0.0.1:9000";
     char *all_addrs[17];
     for (uint32_t i = 0; i < num_peers; i++) all_addrs[i] = peers[i];
     all_addrs[num_peers] = client_addr;
@@ -66,24 +74,44 @@ int main(int argc, char **argv) {
     signal(SIGINT, signal_handler);
     signal(SIGTERM, signal_handler);
 
-    // Allocate records for tracking requests
-    const uint32_t max_records = 10000;
-    request_record_t *records = calloc(max_records, sizeof(request_record_t));
+    // Seed randomness for reservoir sampling
+    srand(time(NULL));
+
+    // Track statistics in-memory (for summary) but log every request to disk.
     uint32_t record_count = 0;
+    uint32_t successful = 0;
+    uint64_t total_latency_us = 0;
+
+    // Reservoir sample for latency percentiles (bounded memory even for long runs)
+    const uint32_t sample_size = 10000;
+    double *latency_sample = malloc(sizeof(double) * sample_size);
+    uint32_t sample_count = 0;
+
+    // Open log file early so data is saved incrementally (survives crashes).
+    FILE *log_file = fopen("client_benchmark.log", "w");
+    if (log_file) {
+        fprintf(log_file, "# SeqNo\tSent(usec)\tReceived(usec)\tLatency(ms)\tSuccess\n");
+        fflush(log_file);
+    } else {
+        fprintf(stderr, "Warning: failed to open client_benchmark.log for writing\n");
+    }
 
     printf("Starting benchmark client:\n");
     printf("  Interval: %u ms\n", interval_ms);
     printf("  Duration: %u seconds\n", duration_sec);
     printf("  Command: %u\n", cmd);
     printf("  Peers: %u\n", num_peers);
+    printf("  Client address: %s\n", client_addr);
     printf("Starting benchmark...\n");
 
     uint64_t start_time = get_usec();
-    uint64_t end_time = start_time + (duration_sec * 1000000ULL);
+    uint64_t end_time = (duration_sec > 0)
+        ? start_time + (duration_sec * 1000000ULL)
+        : UINT64_MAX;
     uint32_t seqno = (uint32_t)time(NULL);
     uint32_t current_leader = 0; // Start with first peer
 
-    while (running && get_usec() < end_time && record_count < max_records) {
+    while (running && get_usec() < end_time) {
         uint64_t now = get_usec();
 
         // Send request
@@ -107,10 +135,9 @@ int main(int argc, char **argv) {
         }
 
         // Record send time
-        records[record_count].seqno = req.cmd_seqno;
-        records[record_count].sent_usec = now;
-        records[record_count].received_usec = 0;
-        records[record_count].success = 0;
+        uint64_t sent_usec = now;
+        uint64_t received_usec = 0;
+        int success = 0;
 
         // Wait for response with timeout
         pkt_t res_pkt;
@@ -121,8 +148,8 @@ int main(int argc, char **argv) {
             proc_res_t res;
             if (rpc_unpack_proc_res(&res_pkt, &res) == 0) {
                 if (res.success) {
-                    records[record_count].received_usec = recv_time;
-                    records[record_count].success = 1;
+                    received_usec = recv_time;
+                    success = 1;
                     printf("SUCCESS: Request %u completed in %.1f ms\n",
                            req.cmd_seqno,
                            (recv_time - now) / 1000.0);
@@ -140,7 +167,38 @@ int main(int argc, char **argv) {
             printf("TIMEOUT: Request %u timed out\n", req.cmd_seqno);
         }
 
+        // Persist this request record to disk immediately so we don't lose it on crash.
+        if (log_file) {
+            double latency_ms = 0.0;
+            if (success && received_usec > 0) {
+                latency_ms = (received_usec - sent_usec) / 1000.0;
+            }
+            fprintf(log_file, "%u\t%lu\t%lu\t%.1f\t%d\n",
+                    req.cmd_seqno,
+                    sent_usec,
+                    received_usec,
+                    latency_ms,
+                    success);
+            fflush(log_file);
+        }
+
+        // Update in-memory counters
         record_count++;
+        if (success) {
+            successful++;
+            total_latency_us += (received_usec - sent_usec);
+
+            // Reservoir sampling for percentile estimation
+            if (sample_count < sample_size) {
+                latency_sample[sample_count++] = (received_usec - sent_usec) / 1000.0;
+            } else {
+                // Randomly replace existing sample with decreasing probability
+                uint32_t r = (uint32_t)(rand() % record_count);
+                if (r < sample_size) {
+                    latency_sample[r] = (received_usec - sent_usec) / 1000.0;
+                }
+            }
+        }
 
         // Wait for next interval
         uint64_t next_send = now + (interval_ms * 1000ULL);
@@ -151,81 +209,33 @@ int main(int argc, char **argv) {
 
     // Print summary
     printf("\nBenchmark completed. Processing %u requests...\n", record_count);
-
-    uint32_t successful = 0;
-    uint32_t failed = 0;
-    double total_latency = 0.0;
-    uint32_t latency_count = 0;
-
-    for (uint32_t i = 0; i < record_count; i++) {
-        if (records[i].success && records[i].received_usec > 0) {
-            successful++;
-            double latency_ms = (records[i].received_usec - records[i].sent_usec) / 1000.0;
-            total_latency += latency_ms;
-            latency_count++;
-        } else {
-            failed++;
-        }
-    }
+    uint32_t failed = record_count - successful;
+    double avg_latency_ms = (successful > 0) ? (double)total_latency_us / successful / 1000.0 : 0.0;
 
     printf("\nResults:\n");
     printf("  Total requests: %u\n", record_count);
-    printf("  Successful: %u (%.1f%%)\n", successful, (double)successful / record_count * 100.0);
-    printf("  Failed/Timeout: %u (%.1f%%)\n", failed, (double)failed / record_count * 100.0);
+    printf("  Successful: %u (%.1f%%)\n", successful, record_count ? (double)successful / record_count * 100.0 : 0.0);
+    printf("  Failed/Timeout: %u (%.1f%%)\n", failed, record_count ? (double)failed / record_count * 100.0 : 0.0);
 
-    if (latency_count > 0) {
-        double avg_latency = total_latency / latency_count;
-        printf("  Average latency: %.1f ms\n", avg_latency);
+    if (successful > 0) {
+        printf("  Average latency: %.1f ms\n", avg_latency_ms);
 
-        // Calculate 95th percentile
-        double latencies[latency_count];
-        for (uint32_t i = 0; i < latency_count; i++) {
-            uint32_t idx = 0;
-            for (uint32_t j = 0; j < record_count; j++) {
-                if (records[j].success && records[j].received_usec > 0) {
-                    latencies[idx++] = (records[j].received_usec - records[j].sent_usec) / 1000.0;
-                    if (idx >= latency_count) break;
-                }
-            }
+        if (sample_count > 0) {
+            // Calculate 95th percentile from the reservoir sample
+            qsort(latency_sample, sample_count, sizeof(double), compare_doubles);
+            uint32_t p95_idx = (uint32_t)(sample_count * 0.95);
+            if (p95_idx >= sample_count) p95_idx = sample_count - 1;
+            printf("  95th percentile latency (sampled): %.1f ms\n", latency_sample[p95_idx]);
         }
-
-        // Simple sort for percentile (not efficient for large arrays)
-        for (uint32_t i = 0; i < latency_count - 1; i++) {
-            for (uint32_t j = i + 1; j < latency_count; j++) {
-                if (latencies[j] < latencies[i]) {
-                    double temp = latencies[i];
-                    latencies[i] = latencies[j];
-                    latencies[j] = temp;
-                }
-            }
-        }
-
-        uint32_t p95_idx = (uint32_t)(latency_count * 0.95);
-        if (p95_idx >= latency_count) p95_idx = latency_count - 1;
-        printf("  95th percentile latency: %.1f ms\n", latencies[p95_idx]);
     }
 
-    // Write detailed log to file
-    FILE *log_file = fopen("client_benchmark.log", "w");
+    // Close log file (it has been written incrementally during the run)
     if (log_file) {
-        fprintf(log_file, "# SeqNo\tSent(usec)\tReceived(usec)\tLatency(ms)\tSuccess\n");
-        for (uint32_t i = 0; i < record_count; i++) {
-            double latency = 0.0;
-            if (records[i].success && records[i].received_usec > 0) {
-                latency = (records[i].received_usec - records[i].sent_usec) / 1000.0;
-            }
-            fprintf(log_file, "%u\t%llu\t%llu\t%.1f\t%d\n",
-                    records[i].seqno,
-                    records[i].sent_usec,
-                    records[i].received_usec,
-                    latency,
-                    records[i].success);
-        }
         fclose(log_file);
         printf("Detailed log written to client_benchmark.log\n");
     }
 
-    free(records);
+    free(latency_sample);
     free(peers_str);
     for (uint32_t i = 0; i < num_peers; i++) {
         free(peers[i]);
