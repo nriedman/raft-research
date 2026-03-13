@@ -33,12 +33,13 @@ void signal_handler(int signum) {
 }
 
 int main(int argc, char **argv) {
-    if (argc < 5) {
-        fprintf(stderr, "Usage: %s <interval_ms> <duration_sec> <cmd> <peer1,peer2,...>\n", argv[0]);
+    if (argc < 6) {
+        fprintf(stderr, "Usage: %s <interval_ms> <duration_sec> <cmd> <peer1,peer2,...> <client_addr>\n", argv[0]);
         fprintf(stderr, "  interval_ms: milliseconds between requests\n");
-        fprintf(stderr, "  duration_sec: how long to run the benchmark\n");
+        fprintf(stderr, "  duration_sec: how long to run the benchmark (0 for indefinite)\n");
         fprintf(stderr, "  cmd: command to send\n");
         fprintf(stderr, "  peers: comma-separated list of peer addresses\n");
+        fprintf(stderr, "  client_addr: client's own address (e.g., 10.152.0.2:9000)\n");
         return 1;
     }
 
@@ -46,26 +47,7 @@ int main(int argc, char **argv) {
     uint32_t duration_sec = atoi(argv[2]);
     uint32_t cmd = atoi(argv[3]);
     char *peers_str = strdup(argv[4]);
-
-    // Parse peers
-    char *peers[16];
-    uint32_t num_peers = 0;
-    char *token = strtok(peers_str, ",");
-    while (token && num_peers < 16) {
-        peers[num_peers++] = strdup(token);
-        token = strtok(NULL, ",");
-    }
-
-    if (num_peers == 0) {
-        fprintf(stderr, "No peers specified\n");
-        return 1;
-    }
-
-    // Initialize transport
-    char *client_addr = "127.0.0.1:9000";
-    char *all_addrs[17];
-    for (uint32_t i = 0; i < num_peers; i++) all_addrs[i] = peers[i];
-    all_addrs[num_peers] = client_addr;
+    char *client_addr = argv[5];
 
     transport_t t = transport_socket_init(num_peers, (const char **)all_addrs, num_peers + 1);
 
@@ -100,6 +82,7 @@ int main(int argc, char **argv) {
     printf("  Duration: %u seconds\n", duration_sec);
     printf("  Command: %u\n", cmd);
     printf("  Peers: %u\n", num_peers);
+    printf("  Client address: %s\n", client_addr);
     printf("Starting benchmark...\n");
 
     uint64_t start_time = get_usec();
