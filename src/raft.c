@@ -1,5 +1,4 @@
 #include "raft.h"
-#include "timeout.h"
 #include "util.h"
 #include <stdio.h>
 #include <stdlib.h>
