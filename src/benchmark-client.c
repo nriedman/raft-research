@@ -21,6 +21,7 @@ typedef struct {
 static volatile int running = 1;
 
 void signal_handler(int signum) {
+    (void)signum;
     running = 0;
 }
 

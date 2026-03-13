@@ -45,53 +45,6 @@ static double compute_mean_interval(const heartbeat_telemetry_t *telemetry) {
     return (double)sum / (double)telemetry->num_intervals;
 }
 
-// [AI] Compute standard deviation of heartbeat intervals (no longer used)
-static double compute_std_dev_interval(const heartbeat_telemetry_t *telemetry) {
-    if (telemetry->num_intervals <= 1) {
-        return 0.0;
-    }
-
-    double mean = compute_mean_interval(telemetry);
-    double sum_sq_diff = 0.0;
-
-    for (uint32_t i = 0; i < telemetry->num_intervals; i++) {
-        double diff = (double)telemetry->intervals_usec[i] - mean;
-        sum_sq_diff += diff * diff;
-    }
-
-    double variance = sum_sq_diff / (double)(telemetry->num_intervals - 1);
-    return sqrt(variance);
-}
-
-// [AI] Gaussian CDF approximation (standard normal distribution)
-// Returns cumulative probability P(Z <= z)
-static double gaussian_cdf(double z) {
-    // Using error function approximation (Abramowitz and Stegun)
-    if (z == 0.0) return 0.5;
-
-    double sign = (z > 0) ? 1.0 : -1.0;
-    z = fabs(z);
-
-    // Approximation constants
-    double a1 =  0.254829592;
-    double a2 = -0.284496736;
-    double a3 =  1.421413741;
-    double a4 = -1.453152027;
-    double a5 =  1.061405429;
-    double p  =  0.3275911;
-
-    double t = 1.0 / (1.0 + p * z);
-    double t2 = t * t;
-    double t3 = t2 * t;
-    double t4 = t3 * t;
-    double t5 = t4 * t;
-
-    double erf = 1.0 - (a1*t + a2*t2 + a3*t3 + a4*t4 + a5*t5) * exp(-z*z);
-    double cdf = 0.5 * (1.0 + sign * erf);
-
-    return cdf;
-}
-
 void heartbeat_telemetry_record_interval(heartbeat_telemetry_t *telemetry, uint64_t current_time_usec) {
     // Initialize on first heartbeat
     if (telemetry->last_heartbeat_usec == 0) {
