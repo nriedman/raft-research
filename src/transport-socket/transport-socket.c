@@ -103,18 +103,27 @@ static int socket_send(const pkt_t *pkt, void *ctx) {
     fd_set rfds, wfds;
     struct timeval tv;
     int max_fd;
-    
+
+    const uint32_t connect_timeout_ms = 5000;
+    uint64_t connect_start = get_usec();
+
     // We loop here because we might accept new connections while waiting to send
     while (1) {
+        uint64_t now = get_usec();
+        if (now - connect_start >= (uint64_t)connect_timeout_ms * 1000) {
+            // Connection is taking too long
+            return -1;
+        }
+
         FD_ZERO(&rfds);
         FD_ZERO(&wfds);
         FD_SET(fd, &wfds);
         FD_SET(sctx->listen_fd, &rfds);
         max_fd = (fd > sctx->listen_fd) ? fd : sctx->listen_fd;
-        
+
         tv.tv_sec = 0;
         tv.tv_usec = 100000; // 100ms wait
-        
+
         int ret = select(max_fd + 1, &rfds, &wfds, NULL, &tv);
         if (ret > 0) {
             if (FD_ISSET(sctx->listen_fd, &rfds)) {
@@ -133,7 +142,8 @@ static int socket_send(const pkt_t *pkt, void *ctx) {
             }
             if (FD_ISSET(fd, &wfds)) break; // Ready to send
         } else if (ret == 0) {
-            return -1; // Timeout
+            // Try again until connect_timeout_ms expires
+            continue;
         } else {
             if (errno == EINTR) continue;
             perror("select in socket_send");
