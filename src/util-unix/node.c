@@ -32,6 +32,12 @@
 int main(int argc, char **argv) {
     uint32_t id = 0;
     char *peers_str = NULL;
+    uint32_t ts = TS_TIMEOUT;
+    uint32_t timeout_lb_ms = 1000;
+    uint32_t timeout_ub_ms = 2000;
+    double acc_thresh = 1.0;
+    uint32_t acc_ws = 32;
+    uint32_t acc_rs = 8;
     
     srand(time(NULL) ^ getpid());
 
@@ -40,11 +46,28 @@ int main(int argc, char **argv) {
             id = (uint32_t)atoi(argv[++i]);
         } else if (strcmp(argv[i], "--peers") == 0 && i + 1 < argc) {
             peers_str = argv[++i];
+        } else if (strcmp(argv[i], "--a") == 0 && i + 3 < argc) {
+            ts = TS_ACCRUAL;
+            fprintf(stderr, "%s", argv[i+1]);
+            fprintf(stderr, ", %f\n", atof(argv[i+1]));
+            acc_thresh = (double)atof(argv[++i]);
+            acc_ws = (uint32_t)atoi(argv[++i]);
+            acc_rs = (uint32_t)atoi(argv[++i]);
+        } else if (strcmp(argv[i], "--t") == 0 && i + 2 < argc) {
+            ts = TS_TIMEOUT;
+            timeout_lb_ms = (uint32_t)atoi(argv[++i]);
+            timeout_ub_ms = (uint32_t)atoi(argv[++i]);
         }
     }
     
     if (peers_str == NULL) {
         fprintf(stderr, "Usage: %s --id <id> --peers <p1,p2,...>\n", argv[0]);
+        fprintf(stderr, "Optional:\n");
+        fprintf(stderr, "  --t <lb> <ub>: (Default) Use randomized timeout from [<lb>ms, <ub>ms] (defaults to [150ms, 300ms])\n");
+        fprintf(stderr, "  --a <th> <ws> <rs>:      Use accrual detection with threshold <th>, window size <ws>, and ramp size <rs>.\n");
+        return 1;
+    } else if (timeout_lb_ms > timeout_ub_ms) {
+        fprintf(stderr, "Error: <lb> (%dms) must be at most <ub> (%dms)\n", timeout_lb_ms, timeout_ub_ms);
         return 1;
     }
     
@@ -74,7 +97,13 @@ int main(int argc, char **argv) {
 
     raft_config_t config = {
         .id = id,
-        .num_nodes = num_peers
+        .num_nodes = num_peers,
+        .timeout_scheme = ts,
+        .accrual_threshold = acc_thresh,
+        .accrual_window_size = acc_ws,
+        .accrual_ramp_size = acc_rs,
+        .timeout_lb_ms = timeout_lb_ms,
+        .timeout_ub_ms = timeout_ub_ms
     };
 
     raft_node_t *node = raft_create(config, transport, log, pf);

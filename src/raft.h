@@ -4,14 +4,15 @@
 #include "persistent-fields.h"
 #include "rpc.h"
 #include "raft-timer.h"
+#include "accrual.h"
 #include "transport.h"
 #include <stdint.h>
 
 #define HEARTBEAT_INTERVAL_USEC     1*1000 * 1000   // 100 ms
 #define ELECTION_INTERVAL_MIN_USEC  5*1000 * 1000   // 500 ms
-#define ELECTION_INTERVAL_MAX_USEC  9*1000 * 1000  // 1000 ms
+#define ELECTION_INTERVAL_MAX_USEC  9*1000 * 1000   // 1000 ms
 
-#define NO_LEADER                   UINT32_MAX  // index stored when no leader known
+#define NO_LEADER                   UINT32_MAX      // index stored when no leader known
 
 #define MAX_OUTSTANDING_REQUESTS    128
 
@@ -31,6 +32,12 @@ typedef struct {
 typedef struct {
     uint32_t id;
     uint32_t num_nodes;
+    uint32_t timeout_scheme;
+    double accrual_threshold;
+    uint32_t accrual_window_size;
+    uint32_t accrual_ramp_size;
+    uint32_t timeout_lb_ms;
+    uint32_t timeout_ub_ms;
 } raft_config_t;
 
 typedef struct {
@@ -49,6 +56,9 @@ typedef struct {
 
     // "volatile" state (follower only)
     uint32_t leader_id;             // id of leader if known, NO_LEADER otherwise
+
+    // Heartbeat telemetry (follower only)
+    heartbeat_telemetry_t heartbeat_telemetry;
 
     // "volatile" state (candidate only)
     uint32_t votes_received;        // for elections: when > num_nodes / 2, candidate wins
