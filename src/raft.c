@@ -7,6 +7,7 @@
 
 // MARK: Raft Utility Helpers
 
+static void set_fault_detect_timer(raft_node_t *node);
 static void set_election_timer(raft_node_t *node);
 static void set_heartbeat_timer(raft_node_t *node);
 
@@ -165,7 +166,7 @@ static void send_heartbeats(raft_node_t *node) {
 
     int cur_term = node->hard_state.get(PF_CURRENT_TERM, node->hard_state.context);
 
-    //fprintf(stderr, "[Node %d] Sending heartbeat\n", node->config.id);
+    fprintf(stderr, "[Node %d] Sending heartbeat\n", node->config.id);
     for (uint32_t i = 0; i < node->config.num_nodes; i++) {
         if (i == node->config.id)
             continue;
@@ -244,25 +245,9 @@ static void handle_append_entries_request(raft_node_t *node, append_entries_req_
         
         // Record the interval for telemetry
         heartbeat_telemetry_record_interval(&node->heartbeat_telemetry, current_time_usec);
-        
-        // compute current interval for scoring
-        uint64_t current_interval = 0;
-        if (node->heartbeat_telemetry.num_intervals > 0) {
-            int idx = (node->heartbeat_telemetry.interval_index + HEARTBEAT_WINDOW_SIZE - 1) % HEARTBEAT_WINDOW_SIZE;
-            current_interval = node->heartbeat_telemetry.intervals_usec[idx];
-        }
-        
-        if (current_interval > 0) {
-            if (heartbeat_telemetry_check_leader_failure(&node->heartbeat_telemetry, current_interval)) {
-                // trigger election immediately
-                fprintf(stderr, "[Node %d] Leader failure detected via φ, starting election\n", node->config.id);
-                become_candidate(node);
-                return; // skip rest of handler
-            }
-        }
     }
 
-    set_election_timer(node); 
+    set_fault_detect_timer(node); 
 
     int log_len = node->log.length(node->log.context);
     if (log_len < 0) {
@@ -563,19 +548,19 @@ static void become_follower(raft_node_t *node, uint32_t term, uint32_t leader_id
     node->votes_received = 0;
     
     // Reset telemetry when becoming a follower
-    heartbeat_telemetry_init(&node->heartbeat_telemetry);
+    heartbeat_telemetry_reset(&node->heartbeat_telemetry);
     
-    set_election_timer(node);
+    set_fault_detect_timer(node);
 }
 
 static void become_candidate(raft_node_t *node) {
-    //fprintf(stderr, "[Node %d] Becoming candidate\n", node->config.id);
+    fprintf(stderr, "[Node %d] Becoming candidate\n", node->config.id);
     node->role = CANDIDATE;
     node->leader_id = NO_LEADER;
     node->votes_received = 0;
     
     // Reset telemetry when transitioning away from follower
-    heartbeat_telemetry_init(&node->heartbeat_telemetry);
+    heartbeat_telemetry_reset(&node->heartbeat_telemetry);
     
     start_election(node);
 }
@@ -586,7 +571,7 @@ static void become_leader(raft_node_t *node) {
     node->leader_id = NO_LEADER;
 
     // Reset telemetry when transitioning away from follower
-    heartbeat_telemetry_init(&node->heartbeat_telemetry);
+    heartbeat_telemetry_reset(&node->heartbeat_telemetry);
 
     int log_len = node->log.length(node->log.context);
     for (unsigned i = 0; i < node->config.num_nodes; i++) {
@@ -600,10 +585,25 @@ static void become_leader(raft_node_t *node) {
 
 // MARK: Timeout
 
+static void set_fault_detect_timer(raft_node_t *node) {
+    if (node->config.timeout_scheme == TS_TIMEOUT
+        || node->heartbeat_telemetry.num_intervals < ACCRUAL_MIN_SAMPLES) {
+        node->timer.duration_usec = random_timeout_usec(
+            node->config.timeout_lb_ms * 1000,
+            node->config.timeout_ub_ms * 1000
+        );
+        // fprintf(stderr, "[Node %d] Set leader fault detection timer to %llu us\n", node->config.id, node->timer.duration_usec);
+    } else if (node->config.timeout_scheme == TS_ACCRUAL) {
+        node->timer.duration_usec = ACCRUAL_INTERVAL_MS * 1000;
+        // fprintf(stderr, "[Node %d] Set accrual sample interval timer to %llu us\n", node->config.id, node->timer.duration_usec);
+    }
+    timer_reset(&node->timer);
+}
+
 static void set_election_timer(raft_node_t *node) {
     node->timer.duration_usec = random_timeout_usec(
-        ELECTION_INTERVAL_MIN_USEC,
-        ELECTION_INTERVAL_MAX_USEC
+        node->config.timeout_lb_ms * 1000,
+        node->config.timeout_ub_ms * 1000
     );
     //fprintf(stderr, "[Node %d] Set election timer to %llu usec\n", node->config.id, node->timer.duration_usec);
     timer_reset(&node->timer);
@@ -623,7 +623,16 @@ static uint32_t raft_get_timeout_ms(raft_node_t *node) {
 static void raft_handle_timeout(raft_node_t *node) {
     switch (node->role) {
         case FOLLOWER: {
-            become_candidate(node);
+            if (node->config.timeout_scheme == TS_TIMEOUT
+                || node->heartbeat_telemetry.num_intervals < ACCRUAL_MIN_SAMPLES) {
+                become_candidate(node);
+            } else if (node->config.timeout_scheme == TS_ACCRUAL) {
+                if (heartbeat_telemetry_check_leader_failure(&node->heartbeat_telemetry)) {
+                    become_candidate(node);
+                } else {
+                    set_fault_detect_timer(node);
+                }
+            }
             break;
         }
         case CANDIDATE: {

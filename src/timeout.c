@@ -2,9 +2,27 @@
 #include "util.h"
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 
-void heartbeat_telemetry_init(heartbeat_telemetry_t *telemetry) {
-    for (int i = 0; i < HEARTBEAT_WINDOW_SIZE; i++) {
+void heartbeat_telemetry_init(heartbeat_telemetry_t *telemetry, uint32_t threshold, uint32_t window_size) {
+    // All elements inited to 0
+    telemetry->intervals_usec = calloc(window_size, sizeof(*telemetry->intervals_usec));
+    telemetry->window_size = window_size;
+    telemetry->threshold = threshold;
+    telemetry->interval_index = 0;
+    telemetry->num_intervals = 0;
+    telemetry->last_heartbeat_usec = 0;
+}
+
+void heartbeat_telemetry_free(heartbeat_telemetry_t *telemetry) {
+    if (telemetry->intervals_usec) {
+        free(telemetry->intervals_usec);
+        telemetry->intervals_usec = NULL;
+    }
+}
+
+void heartbeat_telemetry_reset(heartbeat_telemetry_t *telemetry) {
+    for (unsigned i = 0; i < telemetry->window_size; i++) {
         telemetry->intervals_usec[i] = 0;
     }
     telemetry->interval_index = 0;
@@ -86,21 +104,18 @@ void heartbeat_telemetry_record_interval(heartbeat_telemetry_t *telemetry, uint6
 
     // Store in circular buffer
     telemetry->intervals_usec[telemetry->interval_index] = interval_usec;
-    telemetry->interval_index = (telemetry->interval_index + 1) % HEARTBEAT_WINDOW_SIZE;
+    telemetry->interval_index = (telemetry->interval_index + 1) % telemetry->window_size;
 
     // Track number of intervals collected (until window is full)
-    if (telemetry->num_intervals < HEARTBEAT_WINDOW_SIZE) {
+    if (telemetry->num_intervals < telemetry->window_size) {
         telemetry->num_intervals++;
     }
 }
 
 // [AI] Check if leader has likely failed based on φ accrual detector
 // Returns 1 if failure likely, 0 otherwise
-int heartbeat_telemetry_check_leader_failure(heartbeat_telemetry_t *telemetry, uint64_t current_interval_usec) {
-    // Need at least 3 samples to compute a reliable mean
-    if (telemetry->num_intervals < 3) {
-        return 0;
-    }
+int heartbeat_telemetry_check_leader_failure(heartbeat_telemetry_t *telemetry) {
+    uint64_t current_interval_usec = get_usec() - telemetry->last_heartbeat_usec;
 
     double mean = compute_mean_interval(telemetry);
     if (mean <= 0.0) {
@@ -118,8 +133,8 @@ int heartbeat_telemetry_check_leader_failure(heartbeat_telemetry_t *telemetry, u
     fprintf(stderr, "[Telemetry] Interval: %llu µs, Mean: %.1f µs, φ=%.3f\n",
             current_interval_usec, mean, phi);
 
-    if (phi > LEADER_FAILURE_PHI_THRESHOLD) {
-        fprintf(stderr, "[Telemetry] φ threshold %.1f exceeded, leader likely failed\n", LEADER_FAILURE_PHI_THRESHOLD);
+    if (phi > (double)telemetry->threshold) {
+        fprintf(stderr, "[Telemetry] φ threshold %.1f exceeded, leader likely failed\n", (double)telemetry->threshold);
         return 1;
     }
 

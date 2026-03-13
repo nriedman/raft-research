@@ -19,6 +19,10 @@ raft_node_t *raft_create(
     nd->role = FOLLOWER;
     nd->transport = transport;
 
+    heartbeat_telemetry_t t;
+    heartbeat_telemetry_init(&t, config.accrual_threshold, config.accrual_window_size);
+    nd->heartbeat_telemetry = t;
+
     nd->log = log;
     nd->hard_state = pf;
 
@@ -34,8 +38,8 @@ raft_node_t *raft_create(
 
     // Start election timer
     nd->timer.duration_usec = random_timeout_usec(
-        ELECTION_INTERVAL_MIN_USEC,
-        ELECTION_INTERVAL_MAX_USEC
+        config.timeout_lb_ms,
+        config.timeout_ub_ms
     );
     timer_reset(&nd->timer);
     
@@ -48,6 +52,8 @@ void raft_destroy(raft_node_t *node) {
 
     log_free(&node->log);
     persistent_fields_free(&node->hard_state);
+
+    heartbeat_telemetry_free(&node->heartbeat_telemetry);
     
     if (node->next_index)
         free(node->next_index);
