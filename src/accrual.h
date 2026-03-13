@@ -11,7 +11,7 @@ enum {
 // the accrual will behave like a random timeout election
 
 // Time between follower score sampling in idle periods
-#define ACCRUAL_INTERVAL_MS         1000
+#define ACCRUAL_INTERVAL_MS         25
 
 // Heartbeat telemetry tracking
 typedef struct {
