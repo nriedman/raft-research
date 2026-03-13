@@ -33,8 +33,9 @@ typedef struct {
     uint32_t id;
     uint32_t num_nodes;
     uint32_t timeout_scheme;
-    uint32_t accrual_threshold;
+    double accrual_threshold;
     uint32_t accrual_window_size;
+    uint32_t accrual_ramp_size;
     uint32_t timeout_lb_ms;
     uint32_t timeout_ub_ms;
 } raft_config_t;

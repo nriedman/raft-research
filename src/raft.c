@@ -586,7 +586,7 @@ static void become_leader(raft_node_t *node) {
 
 static void set_fault_detect_timer(raft_node_t *node) {
     if (node->config.timeout_scheme == TS_TIMEOUT
-        || node->heartbeat_telemetry.num_intervals < ACCRUAL_MIN_SAMPLES) {
+        || node->heartbeat_telemetry.num_intervals < node->heartbeat_telemetry.ramp_size) {
         node->timer.duration_usec = random_timeout_usec(
             node->config.timeout_lb_ms * 1000,
             node->config.timeout_ub_ms * 1000
@@ -623,7 +623,7 @@ static void raft_handle_timeout(raft_node_t *node) {
     switch (node->role) {
         case FOLLOWER: {
             if (node->config.timeout_scheme == TS_TIMEOUT
-                || node->heartbeat_telemetry.num_intervals < ACCRUAL_MIN_SAMPLES) {
+                || node->heartbeat_telemetry.num_intervals < node->heartbeat_telemetry.ramp_size) {
                 become_candidate(node);
             } else if (node->config.timeout_scheme == TS_ACCRUAL) {
                 if (heartbeat_telemetry_check_leader_failure(&node->heartbeat_telemetry)) {

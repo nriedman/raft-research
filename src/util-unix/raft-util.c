@@ -20,7 +20,7 @@ raft_node_t *raft_create(
     nd->transport = transport;
 
     heartbeat_telemetry_t t;
-    heartbeat_telemetry_init(&t, config.accrual_threshold, config.accrual_window_size);
+    heartbeat_telemetry_init(&t, config.accrual_threshold, config.accrual_window_size, config.accrual_ramp_size);
     nd->heartbeat_telemetry = t;
 
     nd->log = log;

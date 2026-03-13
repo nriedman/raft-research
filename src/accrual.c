@@ -4,11 +4,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-void heartbeat_telemetry_init(heartbeat_telemetry_t *telemetry, uint32_t threshold, uint32_t window_size) {
+void heartbeat_telemetry_init(heartbeat_telemetry_t *telemetry, double threshold, uint32_t window_size, uint32_t ramp_size) {
     // All elements inited to 0
     telemetry->intervals_usec = calloc(window_size, sizeof(*telemetry->intervals_usec));
     telemetry->window_size = window_size;
     telemetry->threshold = threshold;
+    telemetry->ramp_size = ramp_size;
     telemetry->interval_index = 0;
     telemetry->num_intervals = 0;
     telemetry->last_heartbeat_usec = 0;
@@ -133,8 +134,8 @@ int heartbeat_telemetry_check_leader_failure(heartbeat_telemetry_t *telemetry) {
     fprintf(stderr, "[Telemetry] Interval: %llu µs, Mean: %.1f µs, φ=%.3f\n",
             current_interval_usec, mean, phi);
 
-    if (phi > (double)telemetry->threshold) {
-        fprintf(stderr, "[Telemetry] φ threshold %.1f exceeded, leader likely failed\n", (double)telemetry->threshold);
+    if (phi > telemetry->threshold) {
+        fprintf(stderr, "[Telemetry] φ threshold %.1f exceeded, leader likely failed\n", telemetry->threshold);
         return 1;
     }
 
