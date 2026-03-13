@@ -71,6 +71,15 @@ int main(int argc, char **argv) {
     request_record_t *records = calloc(max_records, sizeof(request_record_t));
     uint32_t record_count = 0;
 
+    // Open log file early so data is saved incrementally (survives crashes).
+    FILE *log_file = fopen("client_benchmark.log", "w");
+    if (log_file) {
+        fprintf(log_file, "# SeqNo\tSent(usec)\tReceived(usec)\tLatency(ms)\tSuccess\n");
+        fflush(log_file);
+    } else {
+        fprintf(stderr, "Warning: failed to open client_benchmark.log for writing\n");
+    }
+
     printf("Starting benchmark client:\n");
     printf("  Interval: %u ms\n", interval_ms);
     printf("  Duration: %u seconds\n", duration_sec);
@@ -140,6 +149,21 @@ int main(int argc, char **argv) {
             printf("TIMEOUT: Request %u timed out\n", req.cmd_seqno);
         }
 
+        // Persist this request record to disk immediately so we don't lose it on crash.
+        if (log_file) {
+            double latency = 0.0;
+            if (records[record_count].success && records[record_count].received_usec > 0) {
+                latency = (records[record_count].received_usec - records[record_count].sent_usec) / 1000.0;
+            }
+            fprintf(log_file, "%u\t%llu\t%llu\t%.1f\t%d\n",
+                    records[record_count].seqno,
+                    records[record_count].sent_usec,
+                    records[record_count].received_usec,
+                    latency,
+                    records[record_count].success);
+            fflush(log_file);
+        }
+
         record_count++;
 
         // Wait for next interval
@@ -205,22 +229,8 @@ int main(int argc, char **argv) {
         printf("  95th percentile latency: %.1f ms\n", latencies[p95_idx]);
     }
 
-    // Write detailed log to file
-    FILE *log_file = fopen("client_benchmark.log", "w");
+    // Close log file (it has been written incrementally during the run)
     if (log_file) {
-        fprintf(log_file, "# SeqNo\tSent(usec)\tReceived(usec)\tLatency(ms)\tSuccess\n");
-        for (uint32_t i = 0; i < record_count; i++) {
-            double latency = 0.0;
-            if (records[i].success && records[i].received_usec > 0) {
-                latency = (records[i].received_usec - records[i].sent_usec) / 1000.0;
-            }
-            fprintf(log_file, "%u\t%llu\t%llu\t%.1f\t%d\n",
-                    records[i].seqno,
-                    records[i].sent_usec,
-                    records[i].received_usec,
-                    latency,
-                    records[i].success);
-        }
         fclose(log_file);
         printf("Detailed log written to client_benchmark.log\n");
     }
