@@ -66,7 +66,7 @@ typedef struct {
     uint8_t running;
 
     // one timer: duration will depend on node role
-    timer_t timer;
+    raft_timer_t timer;
 } raft_node_t;
 
 raft_node_t *raft_create(raft_config_t config, transport_t transport, log_t log, persistent_fields_t pf);
