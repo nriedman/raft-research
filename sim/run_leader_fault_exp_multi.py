@@ -48,7 +48,7 @@ def get_leader(nodes):
     leader_info = []
     for n in nodes:
         host = n["ssh"]
-        remote_csv = f"{REMOTE_DIR}/telemetry_node_{n['id']}.csv"
+        remote_csv = f"{REMOTE_DIR}/node_{n['id']}*.csv"
         output = subprocess.run(["ssh", host, f"cat {remote_csv} || true"],
                                 capture_output=True, text=True)
         for line in output.stdout.splitlines():

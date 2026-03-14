@@ -1,9 +1,0 @@
-node_id,timestamp_usec,event,term,leader_id,value
-0,52024111022,timeout,0,-1,0
-0,52024111070,became_candidate,0,-1,0
-0,52025297002,timeout,1,-1,0
-0,52026498008,timeout,2,-1,0
-0,52027625752,timeout,3,-1,0
-0,52029088076,timeout,4,-1,0
-0,52030167266,timeout,5,-1,0
-0,52030573865,became_leader,6,-1,0
