@@ -24,11 +24,18 @@ def collect_cluster_data(cluster):
 
     print(f"=== Collecting data for cluster {cluster_name} ===")
 
+    # Ensure archive directory exists on remote host
+    run(["ssh", client["ssh"], f"mkdir -p {REMOTE_DIR}/archive"])
+
     # Fetch client benchmark file
     client_csv_remote = f"{REMOTE_DIR}/client_benchmark.csv"
     client_csv_local = LOCAL_DIR / f"{cluster_name}_client_benchmark.csv"
     fetch_file(client["ssh"], client_csv_remote, client_csv_local)
     print(f"✅ Retrieved client CSV for {cluster_name}")
+
+    # Move the file to archive on remote
+    run(["ssh", client["ssh"], f"mv {client_csv_remote} {REMOTE_DIR}/archive/"])
+    print(f"✅ Retrieved and archived client CSV for {cluster_name}")
 
     # Fetch node logs
     for n in nodes:
@@ -38,10 +45,13 @@ def collect_cluster_data(cluster):
         # Use scp with wildcard; will need quotes so shell expands on remote host
         local_pattern_dir = LOCAL_DIR / f"{cluster_name}_node_{n['id']}"
         local_pattern_dir.mkdir(exist_ok=True)
-        scp_cmd = f"scp {client['ssh']}:{remote_pattern} {local_pattern_dir}/"
+        scp_cmd = f"scp {n['ssh']}:{remote_pattern} {local_pattern_dir}/"
         print(f"Running: {scp_cmd}")
         subprocess.run(scp_cmd, shell=True, check=False)  # shell needed for wildcard
-        print(f"✅ Retrieved node {n['id']} CSVs for {cluster_name}")
+
+        # Move remote CSVs into archive
+        run(["ssh", n["ssh"], f"mv {remote_pattern} {REMOTE_DIR}/archive/"])
+        print(f"✅ Retrieved and archived node {n['id']} CSVs for {cluster_name}")
 
 def main():
     if not Path(HOSTS_FILE).exists():

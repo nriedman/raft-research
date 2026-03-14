@@ -8,7 +8,7 @@ import argparse
 
 HOSTS_FILE = "hosts.json"
 REMOTE_DIR = "~"
-CLIENT_CMD_TEMPLATE = "./benchmark-client 50 0 42 {peers} {client_addr}"  # adjust as needed
+CLIENT_CMD_TEMPLATE = "./benchmark-client 500 0 42 {peers} {client_addr}"  # adjust as needed
 NUM_EXPERIMENTS = 10  # number of leader crashes per cluster
 
 def run(cmd):
