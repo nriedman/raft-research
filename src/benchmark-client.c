@@ -88,12 +88,12 @@ int main(int argc, char **argv) {
     uint32_t sample_count = 0;
 
     // Open log file early so data is saved incrementally (survives crashes).
-    FILE *log_file = fopen("client_benchmark.log", "w");
+    FILE *log_file = fopen("client_benchmark.csv", "w");
     if (log_file) {
-        fprintf(log_file, "# SeqNo\tSent(usec)\tReceived(usec)\tLatency(ms)\tSuccess\n");
+        fprintf(log_file, "SeqNo,Sent(usec),Received(usec),Latency(ms),Success\n");
         fflush(log_file);
     } else {
-        // fprintf(stderr, "Warning: failed to open client_benchmark.log for writing\n");
+        // fprintf(stderr, "Warning: failed to open client_benchmark.csv for writing\n");
     }
 
     printf("Starting benchmark client:\n");
@@ -173,7 +173,7 @@ int main(int argc, char **argv) {
             if (success && received_usec > 0) {
                 latency_ms = (received_usec - sent_usec) / 1000.0;
             }
-            fprintf(log_file, "%u\t%lu\t%lu\t%.1f\t%d\n",
+            fprintf(log_file, "%u,%llu,%llu,%.1f,%d\n",
                     req.cmd_seqno,
                     sent_usec,
                     received_usec,
@@ -232,7 +232,7 @@ int main(int argc, char **argv) {
     // Close log file (it has been written incrementally during the run)
     if (log_file) {
         fclose(log_file);
-        printf("Detailed log written to client_benchmark.log\n");
+        printf("Detailed log written to client_benchmark.csv\n");
     }
 
     free(latency_sample);

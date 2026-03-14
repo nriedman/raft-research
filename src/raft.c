@@ -14,17 +14,24 @@ static void become_follower(raft_node_t *node, uint32_t term, uint32_t leader_id
 static void become_candidate(raft_node_t *node);
 static void become_leader(raft_node_t *node);
 
-static void telemetry_log(uint32_t node_id, const char *event, uint32_t term, uint64_t val) {
-    char filename[64];
-    snprintf(filename, sizeof(filename), "telemetry_node_%u.csv", node_id);
+static void telemetry_log(raft_node_t *node, const char *event, uint32_t term, uint64_t val) {
+    char filename[128];
+    if (node->config.timeout_scheme == TS_TIMEOUT) {
+        snprintf(filename, sizeof(filename), "node_%u_t_%u_%u.csv", 
+                 node->config.id, node->config.timeout_lb_ms, node->config.timeout_ub_ms);
+    } else {
+        snprintf(filename, sizeof(filename), "node_%u_a_%.1f.csv", 
+                 node->config.id, node->config.accrual_threshold);
+    }
     
     FILE *f = fopen(filename, "a");
     if (f) {
         fseek(f, 0, SEEK_END);
         if (ftell(f) == 0) {
-            fprintf(f, "node_id,timestamp_usec,event,term,value\n");
+            fprintf(f, "node_id,timestamp_usec,event,term,leader_id,value\n");
         }
-        fprintf(f, "%u,%llu,%s,%u,%llu\n", node_id, get_usec(), event, term, val);
+        int leader_id = (node->leader_id == NO_LEADER) ? -1 : (int)node->leader_id;
+        fprintf(f, "%u,%llu,%s,%u,%d,%llu\n", node->config.id, get_usec(), event, term, leader_id, val);
         fclose(f);
     }
 }
@@ -265,7 +272,7 @@ static void handle_append_entries_request(raft_node_t *node, append_entries_req_
         heartbeat_telemetry_record_interval(&node->heartbeat_telemetry, current_time_usec);
 
         if (interval > 0) {
-            telemetry_log(node->config.id, "heartbeat", cur_term, interval);
+            telemetry_log(node, "heartbeat", cur_term, interval);
         }
     }
 
@@ -575,6 +582,9 @@ static void become_follower(raft_node_t *node, uint32_t term, uint32_t leader_id
     node->hard_state.set(PF_VOTED_FOR, PF_NO_VOTE_V, node->hard_state.context);
     node->votes_received = 0;
     
+    // Log telemetry for experiment
+    telemetry_log(node, "became_follower", term, leader_id);
+
     // Reset telemetry when becoming a follower
     heartbeat_telemetry_reset(&node->heartbeat_telemetry);
     
@@ -583,6 +593,9 @@ static void become_follower(raft_node_t *node, uint32_t term, uint32_t leader_id
 
 static void become_candidate(raft_node_t *node) {
     //fprintf(stderr, "[Node %d] Becoming candidate\n", node->config.id);
+    uint32_t cur_term = (uint32_t)node->hard_state.get(PF_CURRENT_TERM, node->hard_state.context);
+    telemetry_log(node, "became_candidate", cur_term, 0);
+
     node->role = CANDIDATE;
     node->leader_id = NO_LEADER;
     node->votes_received = 0;
@@ -598,7 +611,7 @@ static void become_leader(raft_node_t *node) {
     //fprintf(stderr, "[Node %d] Becoming leader for term %d\n", node->config.id, cur_term);
     
     // Log telemetry for experiment
-    telemetry_log(node->config.id, "became_leader", cur_term, 0);
+    telemetry_log(node, "became_leader", cur_term, 0);
 
     node->role = LEADER;
     node->leader_id = NO_LEADER;
@@ -654,13 +667,17 @@ static uint32_t raft_get_timeout_ms(raft_node_t *node) {
 }
 
 static void raft_handle_timeout(raft_node_t *node) {
+    uint32_t cur_term = (uint32_t)node->hard_state.get(PF_CURRENT_TERM, node->hard_state.context);
+
     switch (node->role) {
         case FOLLOWER: {
             if (node->config.timeout_scheme == TS_TIMEOUT
                 || node->heartbeat_telemetry.num_intervals < node->heartbeat_telemetry.ramp_size) {
+                telemetry_log(node, "timeout", cur_term, 0);
                 become_candidate(node);
             } else if (node->config.timeout_scheme == TS_ACCRUAL) {
                 if (heartbeat_telemetry_check_leader_failure(&node->heartbeat_telemetry)) {
+                    telemetry_log(node, "timeout", cur_term, 0);
                     become_candidate(node);
                 } else {
                     set_fault_detect_timer(node);
@@ -669,6 +686,7 @@ static void raft_handle_timeout(raft_node_t *node) {
             break;
         }
         case CANDIDATE: {
+            telemetry_log(node, "timeout", cur_term, 0);
             start_election(node);
             break;
         }

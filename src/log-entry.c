@@ -33,9 +33,11 @@ uint32_t log_entry_packed_size(void) {
 
 static int apply_log_entry_to_sm(log_entry_t *entry, void *ctx) {
     // TODO: do a thing here?
-    int node_id = -1;
-    if (ctx)
-        node_id = *(int *)ctx;
+    // int node_id = -1;
+    // if (ctx)
+    //     node_id = *(int *)ctx;
+    (void)entry;
+    (void)ctx;
     
     //fprintf(stderr, "[Node %d] Applying <%x> to state machine\n", node_id, entry->cmd);
     return 0;
