@@ -8,7 +8,7 @@ import argparse
 
 HOSTS_FILE = "hosts.json"
 REMOTE_DIR = "~"
-CLIENT_CMD_TEMPLATE = "./benchmark-client 500 0 42 {peers} {client_addr}"  # adjust as needed
+CLIENT_CMD_TEMPLATE = "./benchmark-client 50 0 42 {peers} {client_addr}"  # adjust as needed
 NUM_EXPERIMENTS = 10  # number of leader crashes per cluster
 
 def run(cmd):
@@ -44,6 +44,11 @@ def start_client(client, nodes):
 
 # ---------------- Leader Detection & Crash ----------------
 
+# Experiment timing controls
+CLUSTER_STABILIZE_TIME = 5      # seconds after nodes start
+MAX_ELECTION_WAIT = 10          # max time to wait for a new leader
+CRASH_BACKOFF = 5               # delay between crash experiments
+
 def get_leader(nodes):
     leader_info = []
     for n in nodes:
@@ -55,7 +60,7 @@ def get_leader(nodes):
             cols = line.split(",")
             if len(cols) < 5:
                 continue
-            node_id, ts, event, term, _ = cols
+            node_id, ts, event, term, _, _ = cols
             if event == "became_leader":
                 leader_info.append((int(term), int(node_id)))
     if not leader_info:
@@ -79,12 +84,18 @@ def restart_node(host, node_id, nodes):
 
 def wait_for_new_leader(nodes, old_leader):
     start = time.time()
-    while True:
+
+    while time.time() - start < MAX_ELECTION_WAIT:
         new_leader = get_leader(nodes)
+
         if new_leader is not None and new_leader != old_leader:
             print(f"✅ New leader {new_leader} elected")
             return new_leader
-        time.sleep(0.05)
+
+        time.sleep(0.1)
+
+    print("⚠️ Leader election timeout")
+    return None
 
 # ---------------- Cleanup ----------------
 
@@ -107,17 +118,34 @@ def run_cluster_experiment(cluster, extra_args=""):
     # Launch nodes and client
     launch_nodes(nodes, extra_args=extra_args)
     start_client(client, nodes)
+
+    print(f"⏳ Waiting {CLUSTER_STABILIZE_TIME}s for cluster to stabilize...")
+    time.sleep(CLUSTER_STABILIZE_TIME)
     
     # Repeat leader crash experiments
     for i in range(NUM_EXPERIMENTS):
         print(f"--- Cluster {cluster_name} Leader crash {i+1} ---")
+
         crashed = crash_leader(nodes)
+
         if crashed is None:
+            print("⚠️ No leader detected, skipping iteration")
+            time.sleep(CRASH_BACKOFF)
             continue
+
         old_leader_id, leader_host = crashed
-        wait_for_new_leader(nodes, old_leader_id)
+
+        new_leader = wait_for_new_leader(nodes, old_leader_id)
+
+        if new_leader is None:
+            print("⚠️ Election failed, restarting crashed node and continuing")
+            restart_node(leader_host, old_leader_id, nodes)
+            time.sleep(CRASH_BACKOFF)
+            continue
+
         restart_node(leader_host, old_leader_id, nodes)
-        time.sleep(1)
+
+        time.sleep(CRASH_BACKOFF)
     
     # Cleanup
     cleanup_cluster(nodes, client)
