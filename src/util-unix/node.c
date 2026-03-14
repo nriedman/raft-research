@@ -69,7 +69,7 @@ int main(int argc, char **argv) {
         //fprintf(stderr, "  --a <th> <ws> <rs>:      Use accrual detection with threshold <th>, window size <ws>, and ramp size <rs>.\n");
         return 1;
     } else if (timeout_lb_ms > timeout_ub_ms) {
-        //fprintf(stderr, "Error: <lb> (%dms) must be at most <ub> (%dms)\n", timeout_lb_ms, timeout_ub_ms);
+        fprintf(stderr, "Error: <lb> (%dms) must be at most <ub> (%dms)\n", timeout_lb_ms, timeout_ub_ms);
         return 1;
     }
     
