@@ -16,13 +16,8 @@ static void become_leader(raft_node_t *node);
 
 static void telemetry_log(raft_node_t *node, const char *event, uint32_t term, uint64_t val) {
     char filename[128];
-    if (node->config.timeout_scheme == TS_TIMEOUT) {
-        snprintf(filename, sizeof(filename), "node_%u_t_%u_%u.csv", 
-                 node->config.id, node->config.timeout_lb_ms, node->config.timeout_ub_ms);
-    } else {
-        snprintf(filename, sizeof(filename), "node_%u_a_%.1f.csv", 
-                 node->config.id, node->config.accrual_threshold);
-    }
+    snprintf(filename, sizeof(filename), "node_%u_long_trace.csv", 
+            node->config.id);
     
     FILE *f = fopen(filename, "a");
     if (f) {

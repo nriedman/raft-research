@@ -22,7 +22,7 @@ def launch_node(host, node_id, peers, extra_args=""):
     session_name = f"raft_node{node_id}"
     cmd = (
         f"tmux new-session -d -s {session_name} "
-        f"'cd {REMOTE_DIR} && ./raft-node --id {node_id} --peers {peer_str} --t 300 450 > raft.log 2>&1'"
+        f"'cd {REMOTE_DIR} && ./raft-node --id {node_id} --peers {peer_str} --a 5 32 8 > raft.log 2>&1'"
     )
     subprocess.run(["ssh", host, cmd])
     print(f"✅ Node {node_id} launched on {host} in tmux session {session_name}")
