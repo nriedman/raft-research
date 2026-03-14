@@ -29,6 +29,28 @@
         - Log:   raft_<id>.log and raft_<id>.log.meta
 */
 
+static void record_start(raft_config_t config) {
+    char filename[128];
+    if (config.timeout_scheme == TS_TIMEOUT) {
+        snprintf(filename, sizeof(filename), "node_%u_t_%u_%u.csv", 
+                 config.id, config.timeout_lb_ms, config.timeout_ub_ms);
+    } else {
+        snprintf(filename, sizeof(filename), "node_%u_a_%.1f.csv", 
+                 config.id, config.accrual_threshold);
+    }
+    
+    FILE *f = fopen(filename, "a");
+    if (f) {
+        fseek(f, 0, SEEK_END);
+        if (ftell(f) == 0) {
+            fprintf(f, "node_id,timestamp_usec,event,term,leader_id,value\n");
+        }
+        int leader_id = -1;
+        fprintf(f, "%u,%llu,%s,%d,%d,%d\n", config.id, get_usec(), "starting", -1, leader_id, -1);
+        fclose(f);
+    }
+}
+
 int main(int argc, char **argv) {
     uint32_t id = 0;
     char *peers_str = NULL;
@@ -38,6 +60,8 @@ int main(int argc, char **argv) {
     double acc_thresh = 1.0;
     uint32_t acc_ws = 32;
     uint32_t acc_rs = 8;
+
+    int crash_after_h = -1;
     
     srand(time(NULL) ^ getpid());
 
@@ -57,6 +81,8 @@ int main(int argc, char **argv) {
             ts = TS_TIMEOUT;
             timeout_lb_ms = (uint32_t)atoi(argv[++i]);
             timeout_ub_ms = (uint32_t)atoi(argv[++i]);
+        } else if (strcmp(argv[i], "--crash_after_heartbeats") == 0 && i + 1 < argc){
+            crash_after_h = (int)atoi(argv[++i]);
         } else {
             continue;
         }
@@ -105,8 +131,12 @@ int main(int argc, char **argv) {
         .accrual_window_size = acc_ws,
         .accrual_ramp_size = acc_rs,
         .timeout_lb_ms = timeout_lb_ms,
-        .timeout_ub_ms = timeout_ub_ms
+        .timeout_ub_ms = timeout_ub_ms,
+        .crash_after_h = crash_after_h
     };
+
+    // log node start
+    record_start(config);
 
     raft_node_t *node = raft_create(config, transport, log, pf);
 

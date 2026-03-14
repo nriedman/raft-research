@@ -19,6 +19,8 @@ raft_node_t *raft_create(
     nd->role = FOLLOWER;
     nd->transport = transport;
 
+    nd->heartbeat_count = 0;
+
     heartbeat_telemetry_t t;
     heartbeat_telemetry_init(&t, config.accrual_threshold, config.accrual_window_size, config.accrual_ramp_size);
     nd->heartbeat_telemetry = t;
