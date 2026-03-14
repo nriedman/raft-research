@@ -30,12 +30,16 @@ def collect_cluster_data(cluster):
     # Fetch client benchmark file
     client_csv_remote = f"{REMOTE_DIR}/client_benchmark.csv"
     client_csv_local = LOCAL_DIR / f"{cluster_name}_client_benchmark.csv"
-    fetch_file(client["ssh"], client_csv_remote, client_csv_local)
-    print(f"✅ Retrieved client CSV for {cluster_name}")
-
-    # Move the file to archive on remote
-    run(["ssh", client["ssh"], f"mv {client_csv_remote} {REMOTE_DIR}/archive/"])
-    print(f"✅ Retrieved and archived client CSV for {cluster_name}")
+    # Check if client CSV exists on remote
+    check_cmd = ["ssh", client["ssh"], f"test -f {client_csv_remote} && echo exists || echo missing"]
+    result = subprocess.run(check_cmd, capture_output=True, text=True)
+    if "exists" in result.stdout:
+        fetch_file(client["ssh"], client_csv_remote, client_csv_local)
+        # Move to archive
+        run(["ssh", client["ssh"], f"mv {client_csv_remote} {REMOTE_DIR}/archive/"])
+        print(f"✅ Retrieved and archived client CSV for {cluster_name}")
+    else:
+        print(f"⚠️ Client CSV not found for {cluster_name}, skipping.")
 
     # Fetch node logs
     for n in nodes:
@@ -45,9 +49,20 @@ def collect_cluster_data(cluster):
         # Use scp with wildcard; will need quotes so shell expands on remote host
         local_pattern_dir = LOCAL_DIR / f"{cluster_name}_node_{n['id']}"
         local_pattern_dir.mkdir(exist_ok=True)
+
+        # Check if any files match the pattern
+        check_cmd = f"ssh {n['ssh']} 'ls {remote_pattern} 2>/dev/null || echo missing'"
+        result = subprocess.run(check_cmd, shell=True, capture_output=True, text=True)
+        if "missing" in result.stdout:
+            print(f"⚠️ No CSVs found for node {n['id']} in {cluster_name}, skipping.")
+            continue
+
         scp_cmd = f"scp {n['ssh']}:{remote_pattern} {local_pattern_dir}/"
         print(f"Running: {scp_cmd}")
         subprocess.run(scp_cmd, shell=True, check=False)  # shell needed for wildcard
+
+        # Ensure archive directory exists on remote host
+        run(["ssh", n["ssh"], f"mkdir -p {REMOTE_DIR}/archive"])
 
         # Move remote CSVs into archive
         run(["ssh", n["ssh"], f"mv {remote_pattern} {REMOTE_DIR}/archive/"])
