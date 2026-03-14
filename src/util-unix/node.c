@@ -57,6 +57,8 @@ int main(int argc, char **argv) {
             ts = TS_TIMEOUT;
             timeout_lb_ms = (uint32_t)atoi(argv[++i]);
             timeout_ub_ms = (uint32_t)atoi(argv[++i]);
+        } else {
+            continue;
         }
     }
     
