@@ -90,7 +90,7 @@ int main(int argc, char **argv) {
     // Open log file early so data is saved incrementally (survives crashes).
     FILE *log_file = fopen("client_benchmark.csv", "w");
     if (log_file) {
-        fprintf(log_file, "SeqNo,Sent(usec),Received(usec),Latency(ms),Success\n");
+        fprintf(log_file, "SeqNo,Sent(usec),Received(usec),Latency(ms),Result,TargetNode,LeaderHint\n");
         fflush(log_file);
     } else {
         // fprintf(stderr, "Warning: failed to open client_benchmark.csv for writing\n");
@@ -144,18 +144,23 @@ int main(int argc, char **argv) {
         int ret = t.receive(&res_pkt, 5000, t.context); // 5 second timeout
         uint64_t recv_time = get_usec();
 
+        char *result = "UKNOWN";
+        uint32_t leader_hint = UINT32_MAX;
+
         if (ret > 0 && res_pkt.header.code == RPC_RESP_PROC) {
             proc_res_t res;
             if (rpc_unpack_proc_res(&res_pkt, &res) == 0) {
+                leader_hint = res.leader_hint;
                 if (res.success) {
                     received_usec = recv_time;
-                    success = 1;
+                    result = "OK";
                     printf("SUCCESS: Request %u completed in %.1f ms\n",
                            req.cmd_seqno,
                            (recv_time - now) / 1000.0);
                 } else {
                     printf("REDIRECT: Request %u redirected to leader %u\n",
                            req.cmd_seqno, res.leader_hint);
+                    result = "NOT_LEADER";
                     if (res.leader_hint < num_peers) {
                         current_leader = res.leader_hint;
                     }
@@ -164,6 +169,7 @@ int main(int argc, char **argv) {
                 printf("ERROR: Failed to unpack response for request %u\n", req.cmd_seqno);
             }
         } else {
+            result = "TIMEOUT";
             printf("TIMEOUT: Request %u timed out\n", req.cmd_seqno);
         }
 
@@ -173,12 +179,16 @@ int main(int argc, char **argv) {
             if (success && received_usec > 0) {
                 latency_ms = (received_usec - sent_usec) / 1000.0;
             }
-            fprintf(log_file, "%u,%llu,%llu,%.1f,%d\n",
+            // SeqNo,Sent(usec),Received(usec),Latency(ms),Result,TargetNode,LeaderHint
+            fprintf(log_file, "%u,%llu,%llu,%.1f,%s,%d,%d\n",
                     req.cmd_seqno,
                     sent_usec,
                     received_usec,
                     latency_ms,
-                    success);
+                    result,
+                    pkt.header.dst,
+                    leader_hint
+            );
             fflush(log_file);
         }
 
