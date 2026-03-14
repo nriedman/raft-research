@@ -10,6 +10,9 @@
 *.state
 *.out
 
+# Ignore pycache stuff
+# __pycache__
+
 # Ignore compilation artifacts
 objs/
 
