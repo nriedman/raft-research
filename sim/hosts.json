@@ -1,0 +1,22 @@
+{
+  "clusters": [
+    {
+      "name": "clusterA",
+      "nodes": [
+        {"ssh": "instance-20260313-030900.us-west1-b.cs244c-final-project-490103", "internal": "10.138.0.2", "port": 8080, "id": 0},
+        {"ssh": "instance-20260313-041707.asia-east1-a.cs244c-final-project-490103", "internal": "10.140.0.2", "port": 8081, "id": 1},
+        {"ssh": "instance-20260313-045142.europe-north1-c.cs244c-final-project-490103", "internal": "10.166.0.2", "port": 8082, "id": 2}
+      ],
+      "client": {"ssh": "instance-20260313-105410.us-central1-a.cs244c-final-project-490103", "internal": "10.128.0.2", "port": 9000}
+    },
+    {
+      "name": "clusterC",
+      "nodes": [
+        {"ssh": "instance-20260313-121303.southamerica-west1-b.cs244c-final-project-490103", "internal": "10.194.0.2", "port": 8080, "id": 0},
+        {"ssh": "instance-20260313-121319.asia-south1-a.cs244c-final-project-490103", "internal": "10.160.0.2", "port": 8081, "id": 1},
+        {"ssh": "instance-20260313-121341.europe-west10-c.cs244c-final-project-490103", "internal": "10.214.0.2", "port": 8082, "id": 2}
+      ],
+      "client": {"ssh": "instance-20260313-121453.asia-southeast2-a.cs244c-final-project-490103", "internal": "10.184.0.2", "port": 9000}
+    }
+  ]
+}
