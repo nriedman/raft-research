@@ -1,7 +1,7 @@
 import json
 import time
 import random
-from cluster import *
+from sim.old.cluster import *
 
 TRIALS = 1000
 
