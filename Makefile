@@ -14,22 +14,22 @@ NODE_SRCS := src/util-unix/node.c \
              src/persist-unix/persistent-fields.c
 NODE_OBJS := $(patsubst src/%.c,objs/%.o,$(NODE_SRCS))
 
-CLIENT_SRCS := src/util-unix/client.c \
+CLIENT_SRCS := src/simple-client.c \
                src/util-unix/util.c \
                src/transport-socket/transport-socket.c \
                src/rpc.c \
                src/log-entry.c
 CLIENT_OBJS := $(patsubst src/%.c,objs/%.o,$(CLIENT_SRCS))
 
-BENCHMARK_CLIENT_SRCS := src/benchmark-client.c \
-                        src/util-unix/util.c \
-                        src/transport-socket/transport-socket.c \
-                        src/rpc.c \
-                        src/log-entry.c
-BENCHMARK_CLIENT_OBJS := $(patsubst src/%.c,objs/%.o,$(BENCHMARK_CLIENT_SRCS))
+# BENCHMARK_CLIENT_SRCS := src/benchmark-client.c \
+#                         src/util-unix/util.c \
+#                         src/transport-socket/transport-socket.c \
+#                         src/rpc.c \
+#                         src/log-entry.c
+# BENCHMARK_CLIENT_OBJS := $(patsubst src/%.c,objs/%.o,$(BENCHMARK_CLIENT_SRCS))
 
 # Executables in project root
-all: raft-node raft-client benchmark-client
+all: raft-node raft-client
 
 raft-node: $(NODE_OBJS)
 	$(CC) -o $@ $^
@@ -37,8 +37,8 @@ raft-node: $(NODE_OBJS)
 raft-client: $(CLIENT_OBJS)
 	$(CC) -o $@ $^
 
-benchmark-client: $(BENCHMARK_CLIENT_OBJS)
-	$(CC) -o $@ $^
+# benchmark-client: $(BENCHMARK_CLIENT_OBJS)
+# 	$(CC) -o $@ $^
 
 # Pattern rule to compile .c files from src/ to .o files in objs/
 objs/%.o: src/%.c
@@ -46,6 +46,6 @@ objs/%.o: src/%.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
-	rm -rf objs raft-node raft-client benchmark-client *.log* *.state *.out *.dSYM
+	rm -rf objs raft-node raft-client benchmark-client *.log* *.state *.out
 
 .PHONY: all clean
