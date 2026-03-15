@@ -595,9 +595,6 @@ static void become_follower(raft_node_t *node, uint32_t term, uint32_t leader_id
 
 static void become_candidate(raft_node_t *node) {
     //fprintf(stderr, "[Node %d] Becoming candidate\n", node->config.id);
-    uint32_t cur_term = (uint32_t)node->hard_state.get(PF_CURRENT_TERM, node->hard_state.context);
-    telemetry_log(node, "became_candidate", cur_term, 0);
-
     node->role = CANDIDATE;
     node->leader_id = NO_LEADER;
     node->votes_received = 0;
@@ -606,6 +603,9 @@ static void become_candidate(raft_node_t *node) {
     heartbeat_telemetry_reset(&node->heartbeat_telemetry);
     
     start_election(node);
+
+    uint32_t cur_term = (uint32_t)node->hard_state.get(PF_CURRENT_TERM, node->hard_state.context);
+    telemetry_log(node, "became_candidate", cur_term, 0);
 }
 
 static void become_leader(raft_node_t *node) {

@@ -146,10 +146,12 @@ int main(int argc, char **argv) {
 
         char *result = "UKNOWN";
         uint32_t leader_hint = UINT32_MAX;
+        int term = -1;
 
         if (ret > 0 && res_pkt.header.code == RPC_RESP_PROC) {
             proc_res_t res;
             if (rpc_unpack_proc_res(&res_pkt, &res) == 0) {
+                term = res.term;
                 leader_hint = res.leader_hint;
                 if (res.success) {
                     received_usec = recv_time;
@@ -179,15 +181,16 @@ int main(int argc, char **argv) {
             if (success && received_usec > 0) {
                 latency_ms = (received_usec - sent_usec) / 1000.0;
             }
-            // SeqNo,Sent(usec),Received(usec),Latency(ms),Result,TargetNode,LeaderHint
-            fprintf(log_file, "%u,%llu,%llu,%.1f,%s,%d,%d\n",
+            // SeqNo,Sent(usec),Received(usec),Latency(ms),Result,TargetNode,LeaderHint,Term
+            fprintf(log_file, "%u,%llu,%llu,%.1f,%s,%d,%d,%d\n",
                     req.cmd_seqno,
                     sent_usec,
                     received_usec,
                     latency_ms,
                     result,
                     pkt.header.dst,
-                    leader_hint
+                    leader_hint,
+                    term
             );
             fflush(log_file);
         }
