@@ -263,17 +263,19 @@ static void handle_append_entries_request(raft_node_t *node, append_entries_req_
 
     // Record heartbeat interval and check for leader failure (follower only)
     if (node->role == FOLLOWER) {
-        uint64_t current_time_usec = get_usec();
-        uint64_t interval = 0;
-        if (node->heartbeat_telemetry.last_heartbeat_usec != 0) {
-            interval = current_time_usec - node->heartbeat_telemetry.last_heartbeat_usec;
-        }
-        
-        // Record the interval for telemetry
-        heartbeat_telemetry_record_interval(&node->heartbeat_telemetry, current_time_usec);
+        if (req.n_entries == 0) {
+            uint64_t current_time_usec = get_usec();
+            uint64_t interval = 0;
+            if (node->heartbeat_telemetry.last_heartbeat_usec != 0) {
+                interval = current_time_usec - node->heartbeat_telemetry.last_heartbeat_usec;
+            }
+            
+            // Record the interval for telemetry
+            heartbeat_telemetry_record_interval(&node->heartbeat_telemetry, current_time_usec);
 
-        if (interval > 0) {
-            telemetry_log(node, "heartbeat", cur_term, interval);
+            if (interval > 0) {
+                telemetry_log(node, "heartbeat", cur_term, interval);
+            }
         }
     }
 
