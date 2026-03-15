@@ -648,8 +648,8 @@ static void set_fault_detect_timer(raft_node_t *node) {
 
 static void set_election_timer(raft_node_t *node) {
     node->timer.duration_usec = random_timeout_usec(
-        node->config.timeout_lb_ms * 1000,
-        node->config.timeout_ub_ms * 1000
+        HEARTBEAT_INTERVAL_USEC * 3,
+        HEARTBEAT_INTERVAL_USEC * 5
     );
     //fprintf(stderr, "[Node %d] Set election timer to %llu usec\n", node->config.id, node->timer.duration_usec);
     timer_reset(&node->timer);
