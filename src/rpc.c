@@ -249,6 +249,7 @@ int rpc_unpack_proc_req(const pkt_t *pkt, proc_req_t *req) {
     4      | cmd_seqno       | 4 bytes
     8      | success         | 1 byte
     9      | leader_hint     | 4 bytes
+    13     | term            | 4 bytes
 */
 
 int rpc_pack_proc_res(pkt_t *pkt, uint32_t dst, uint32_t src, const proc_res_t *res) {
@@ -261,6 +262,7 @@ int rpc_pack_proc_res(pkt_t *pkt, uint32_t dst, uint32_t src, const proc_res_t *
     write_u32_be(p, res->cmd_seqno); p += 4;
     *p = res->success; p++;
     write_u32_be(p, res->leader_hint); p += 4;
+    write_u32_be(p, res->term); p += 4;
     
     pkt->header.payload_n = p - pkt->payload;
 
@@ -281,6 +283,7 @@ int rpc_unpack_proc_res(const pkt_t *pkt, proc_res_t *res) {
     res->cmd_seqno = read_u32_be(p); p += 4;
     res->success = *p; p++;
     res->leader_hint = read_u32_be(p); p += 4;
+    res->term = read_u32_be(p); p += 4;
 
     return 0;
 }

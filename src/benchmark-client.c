@@ -90,7 +90,7 @@ int main(int argc, char **argv) {
     // Open log file early so data is saved incrementally (survives crashes).
     FILE *log_file = fopen("client_benchmark.csv", "w");
     if (log_file) {
-        fprintf(log_file, "SeqNo,Sent(usec),Received(usec),Latency(ms),Result,TargetNode,LeaderHint\n");
+        fprintf(log_file, "SeqNo,Sent(usec),Received(usec),Latency(ms),Result,TargetNode,LeaderHint,Term\n");
         fflush(log_file);
     } else {
         // fprintf(stderr, "Warning: failed to open client_benchmark.csv for writing\n");

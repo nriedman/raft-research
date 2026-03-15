@@ -58,6 +58,7 @@ typedef struct {
     uint32_t cmd_seqno;
     uint8_t success;
     uint32_t leader_hint;
+    uint32_t term;
 } proc_res_t;
 
 // serialize/deserialize RPC requests/responses into transport packet, setting packet size in header
