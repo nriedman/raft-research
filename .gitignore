@@ -11,7 +11,8 @@
 *.out
 
 # Ignore pycache stuff
-# __pycache__
+__pycache__
+.venv
 
 # Ignore compilation artifacts
 objs/
