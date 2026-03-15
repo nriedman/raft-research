@@ -19,6 +19,7 @@ static int compare_doubles(const void *a, const void *b) {
 #define CLIENT_ID 999
 #define MAX_IN_FLIGHT 16384
 #define TIMEOUT_USEC 5000000ULL
+#define DEAD_NODE_COOLDOWN_USEC 2000000ULL
 
 typedef struct {
     uint32_t seqno;
@@ -28,6 +29,7 @@ typedef struct {
 } in_flight_req_t;
 
 static in_flight_req_t in_flight_table[MAX_IN_FLIGHT];
+static uint64_t last_failure_usec[16];
 
 typedef struct {
     uint32_t seqno;
@@ -46,11 +48,6 @@ void signal_handler(int signum) {
 int main(int argc, char **argv) {
     if (argc < 6) {
         //fprintf(stderr, "Usage: %s <interval_ms> <duration_sec> <cmd> <peer1,peer2,...> <client_addr>\n", argv[0]);
-        //fprintf(stderr, "  interval_ms: milliseconds between requests\n");
-        //fprintf(stderr, "  duration_sec: how long to run the benchmark (0 for indefinite)\n");
-        //fprintf(stderr, "  cmd: command to send\n");
-        //fprintf(stderr, "  peers: comma-separated list of peer addresses\n");
-        //fprintf(stderr, "  client_addr: client's own address (e.g., 10.152.0.2:9000)\n");
         return 1;
     }
 
@@ -70,7 +67,6 @@ int main(int argc, char **argv) {
     }
 
     if (num_peers == 0) {
-        //fprintf(stderr, "No peers specified\n");
         return 1;
     }
 
@@ -103,30 +99,20 @@ int main(int argc, char **argv) {
     if (log_file) {
         fprintf(log_file, "SeqNo,Sent(usec),Received(usec),Latency(ms),Result,TargetNode,LeaderHint,Term,IsPrompt\n");
         fflush(log_file);
-    } else {
-        // fprintf(stderr, "Warning: failed to open client_benchmark.csv for writing\n");
     }
 
-    printf("Starting benchmark client:\n");
-    printf("  Interval: %u ms\n", interval_ms);
-    printf("  Duration: %u seconds\n", duration_sec);
-    printf("  Command: %u\n", cmd);
-    printf("  Peers: %u\n", num_peers);
-    printf("  Client address: %s\n", client_addr);
-    printf("Starting benchmark...\n");
+    printf("Starting benchmark client (Asynchronous Mode):\n");
+    printf("  Interval: %u ms | Duration: %u sec | Peers: %u\n", interval_ms, duration_sec, num_peers);
 
     uint64_t start_time = get_usec();
-    uint64_t end_time = (duration_sec > 0)
-        ? start_time + (duration_sec * 1000000ULL)
-        : UINT64_MAX;
+    uint64_t end_time = (duration_sec > 0) ? start_time + (duration_sec * 1000000ULL) : UINT64_MAX;
     uint32_t seqno = (uint32_t)time(NULL);
-    uint32_t current_leader = 0; // Start with first peer
+    uint32_t current_leader = 0; 
 
     uint64_t next_send_time = get_usec();
     uint64_t interval_us = (uint64_t)interval_ms * 1000ULL;
     uint64_t last_timeout_check = get_usec();
 
-    // Baseline RTT tracking (avg of first 50 successful requests)
     double baseline_ms = 0.0;
     uint32_t baseline_samples = 0;
 
@@ -137,44 +123,57 @@ int main(int argc, char **argv) {
         if (now >= next_send_time) {
             uint32_t idx = seqno % MAX_IN_FLIGHT;
             
-            // If slot is occupied by a very old request that never timed out
-            if (in_flight_table[idx].active) {
-                if (now - in_flight_table[idx].sent_usec >= TIMEOUT_USEC) {
-                    // Log timeout before overwriting
-                    if (log_file) {
-                        fprintf(log_file, "%u,%llu,%llu,%.1f,%s,%u,%d,%d,0\n",
-                                in_flight_table[idx].seqno, in_flight_table[idx].sent_usec, 0ULL, 0.0, "TIMEOUT", in_flight_table[idx].target_node, -1, -1);
-                        fflush(log_file);
-                    }
-                    record_count++;
-                    in_flight_table[idx].active = 0;
+            // Handle table full or stalled entries
+            if (in_flight_table[idx].active && (now - in_flight_table[idx].sent_usec >= TIMEOUT_USEC)) {
+                if (log_file) {
+                    fprintf(log_file, "%u,%llu,%llu,%.1f,%s,%u,%d,%d,0\n",
+                            in_flight_table[idx].seqno, in_flight_table[idx].sent_usec, 0ULL, 0.0, "TIMEOUT", in_flight_table[idx].target_node, -1, -1);
+                    fflush(log_file);
                 }
+                record_count++;
+                in_flight_table[idx].active = 0;
             }
 
             if (!in_flight_table[idx].active) {
                 proc_req_t req = { .client_id = CLIENT_ID, .cmd_seqno = seqno, .cmd = cmd };
                 pkt_t pkt;
                 int sent = 0;
-                rpc_pack_proc_req(&pkt, current_leader, CLIENT_ID, &req);
+                uint32_t target = current_leader;
+
+                // If suspected leader is in cooldown, pick someone else
+                if (now - last_failure_usec[target] < DEAD_NODE_COOLDOWN_USEC) {
+                    target = (target + 1) % num_peers;
+                }
+
+                rpc_pack_proc_req(&pkt, target, CLIENT_ID, &req);
                 if (t.send(&pkt, t.context) == 0) {
                     sent = 1;
                 } else {
-                    // Send failed, probably current_leader crashed.
-                    // Pick a random OTHER node.
-                    current_leader = (current_leader + 1 + (rand() % (num_peers - 1))) % num_peers;
-                    printf("SEND FAILURE: Retrying with node %u\n", current_leader);
-                    rpc_pack_proc_req(&pkt, current_leader, CLIENT_ID, &req);
+                    last_failure_usec[target] = now;
+                    // Failover retry
+                    target = (target + 1 + (rand() % (num_peers - 1))) % num_peers;
+                    rpc_pack_proc_req(&pkt, target, CLIENT_ID, &req);
                     if (t.send(&pkt, t.context) == 0) {
                         sent = 1;
+                        current_leader = target;
                     }
                 }
 
                 if (sent) {
                     in_flight_table[idx].seqno = seqno;
                     in_flight_table[idx].sent_usec = now;
-                    in_flight_table[idx].target_node = current_leader;
+                    in_flight_table[idx].target_node = target;
                     in_flight_table[idx].active = 1;
                     seqno++;
+                } else {
+                    // Total send failure - record as unavailability immediately
+                    if (log_file) {
+                        fprintf(log_file, "%u,%llu,%llu,%.1f,%s,%u,%d,%d,0\n",
+                                seqno, now, 0ULL, 0.0, "SEND_FAIL", target, -1, -1);
+                        fflush(log_file);
+                    }
+                    record_count++;
+                    seqno++; // Move to next to avoid getting stuck
                 }
             }
             
@@ -191,10 +190,8 @@ int main(int argc, char **argv) {
                     uint32_t idx = res.cmd_seqno % MAX_IN_FLIGHT;
                     if (in_flight_table[idx].active && in_flight_table[idx].seqno == res.cmd_seqno) {
                         uint64_t recv_time = get_usec();
-                        char *result = res.success ? "OK" : "NOT_LEADER";
                         double latency_ms = (recv_time - in_flight_table[idx].sent_usec) / 1000.0;
                         
-                        // Update baseline if early in the run
                         if (res.success && baseline_samples < 50) {
                             baseline_ms = (baseline_ms * baseline_samples + latency_ms) / (baseline_samples + 1);
                             baseline_samples++;
@@ -202,16 +199,15 @@ int main(int argc, char **argv) {
 
                         int is_prompt = 0;
                         if (res.success) {
-                            // If we have a baseline, consider prompt if within 50% or 50ms (whichever is larger)
                             double threshold = (baseline_ms * 1.5 > baseline_ms + 50) ? baseline_ms * 1.5 : baseline_ms + 50;
-                            if (baseline_samples < 10 || latency_ms <= threshold) {
-                                is_prompt = 1;
-                            }
+                            if (baseline_samples < 10 || latency_ms <= threshold) is_prompt = 1;
                         }
 
                         if (log_file) {
                             fprintf(log_file, "%u,%llu,%llu,%.1f,%s,%u,%u,%u,%d\n",
-                                    res.cmd_seqno, in_flight_table[idx].sent_usec, recv_time, latency_ms, result, in_flight_table[idx].target_node, res.leader_hint, res.term, is_prompt);
+                                    res.cmd_seqno, in_flight_table[idx].sent_usec, recv_time, latency_ms, 
+                                    res.success ? "OK" : "NOT_LEADER", in_flight_table[idx].target_node, 
+                                    res.leader_hint, res.term, is_prompt);
                             fflush(log_file);
                         }
                         
@@ -219,21 +215,21 @@ int main(int argc, char **argv) {
                         if (res.success) {
                             successful++;
                             total_latency_us += (recv_time - in_flight_table[idx].sent_usec);
-                            
-                            // Reservoir sampling
                             if (sample_count < sample_size) {
-                                latency_sample[sample_count++] = (recv_time - in_flight_table[idx].sent_usec) / 1000.0;
+                                latency_sample[sample_count++] = latency_ms;
                             } else {
                                 uint32_t r = (uint32_t)(rand() % record_count);
-                                if (r < sample_size) {
-                                    latency_sample[r] = (recv_time - in_flight_table[idx].sent_usec) / 1000.0;
-                                }
+                                if (r < sample_size) latency_sample[r] = latency_ms;
                             }
-                            printf("SUCCESS: Request %u completed in %.1f ms%s\n", 
-                                   res.cmd_seqno, latency_ms, is_prompt ? "" : " (QUEUED)");
+                            // Only print successes every ~1 second or if they are prompt after a failure
+                            if (res.cmd_seqno % 10 == 0) {
+                                printf("\rSUCCESS: Progressing (Seq: %u, Latency: %.1f ms)%s          ", 
+                                       res.cmd_seqno, latency_ms, is_prompt ? "" : " [QUEUED]");
+                                fflush(stdout);
+                            }
                         } else {
-                            printf("REDIRECT: Request %u redirected to leader %u\n", res.cmd_seqno, res.leader_hint);
-                            if (res.leader_hint < num_peers) {
+                            // On REDIRECT, if hint is not a known dead node, follow it
+                            if (res.leader_hint < num_peers && (get_usec() - last_failure_usec[res.leader_hint] > DEAD_NODE_COOLDOWN_USEC)) {
                                 current_leader = res.leader_hint;
                             }
                         }
@@ -245,6 +241,7 @@ int main(int argc, char **argv) {
 
         // 3. Periodic timeout check
         if (now - last_timeout_check >= 100000) {
+            int timeout_count = 0;
             for (int i = 0; i < MAX_IN_FLIGHT; i++) {
                 if (in_flight_table[i].active && (now - in_flight_table[i].sent_usec >= TIMEOUT_USEC)) {
                     if (log_file) {
@@ -252,10 +249,13 @@ int main(int argc, char **argv) {
                                 in_flight_table[i].seqno, in_flight_table[i].sent_usec, 0ULL, 0.0, "TIMEOUT", in_flight_table[i].target_node, -1, -1);
                         fflush(log_file);
                     }
-                    printf("TIMEOUT: Request %u timed out\n", in_flight_table[i].seqno);
                     record_count++;
                     in_flight_table[i].active = 0;
+                    timeout_count++;
                 }
+            }
+            if (timeout_count > 0) {
+                printf("\nTIMEOUT: %d requests timed out (Cluster may be electing)\n", timeout_count);
             }
             last_timeout_check = now;
         }
@@ -264,7 +264,7 @@ int main(int argc, char **argv) {
     }
 
     // Print summary
-    printf("\nBenchmark completed. Processing %u requests...\n", record_count);
+    printf("\n\nBenchmark completed. Processing %u requests...\n", record_count);
     uint32_t failed = record_count - successful;
     double avg_latency_ms = (successful > 0) ? (double)total_latency_us / successful / 1000.0 : 0.0;
 
@@ -275,9 +275,7 @@ int main(int argc, char **argv) {
 
     if (successful > 0) {
         printf("  Average latency: %.1f ms\n", avg_latency_ms);
-
         if (sample_count > 0) {
-            // Calculate 95th percentile from the reservoir sample
             qsort(latency_sample, sample_count, sizeof(double), compare_doubles);
             uint32_t p95_idx = (uint32_t)(sample_count * 0.95);
             if (p95_idx >= sample_count) p95_idx = sample_count - 1;
@@ -285,7 +283,6 @@ int main(int argc, char **argv) {
         }
     }
 
-    // Close log file (it has been written incrementally during the run)
     if (log_file) {
         fclose(log_file);
         printf("Detailed log written to client_benchmark.csv\n");
@@ -293,9 +290,7 @@ int main(int argc, char **argv) {
 
     free(latency_sample);
     free(peers_str);
-    for (uint32_t i = 0; i < num_peers; i++) {
-        free(peers[i]);
-    }
+    for (uint32_t i = 0; i < num_peers; i++) free(peers[i]);
 
     return 0;
 }
