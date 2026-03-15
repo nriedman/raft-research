@@ -17,6 +17,17 @@ static int compare_doubles(const void *a, const void *b) {
 }
 
 #define CLIENT_ID 999
+#define MAX_IN_FLIGHT 16384
+#define TIMEOUT_USEC 5000000ULL
+
+typedef struct {
+    uint32_t seqno;
+    uint64_t sent_usec;
+    uint32_t target_node;
+    int active;
+} in_flight_req_t;
+
+static in_flight_req_t in_flight_table[MAX_IN_FLIGHT];
 
 typedef struct {
     uint32_t seqno;
@@ -90,7 +101,7 @@ int main(int argc, char **argv) {
     // Open log file early so data is saved incrementally (survives crashes).
     FILE *log_file = fopen("client_benchmark.csv", "w");
     if (log_file) {
-        fprintf(log_file, "SeqNo,Sent(usec),Received(usec),Latency(ms),Result,TargetNode,LeaderHint,Term\n");
+        fprintf(log_file, "SeqNo,Sent(usec),Received(usec),Latency(ms),Result,TargetNode,LeaderHint,Term,IsPrompt\n");
         fflush(log_file);
     } else {
         // fprintf(stderr, "Warning: failed to open client_benchmark.csv for writing\n");
@@ -111,113 +122,145 @@ int main(int argc, char **argv) {
     uint32_t seqno = (uint32_t)time(NULL);
     uint32_t current_leader = 0; // Start with first peer
 
-    while (running && get_usec() < end_time) {
+    uint64_t next_send_time = get_usec();
+    uint64_t interval_us = (uint64_t)interval_ms * 1000ULL;
+    uint64_t last_timeout_check = get_usec();
+
+    // Baseline RTT tracking (avg of first 50 successful requests)
+    double baseline_ms = 0.0;
+    uint32_t baseline_samples = 0;
+
+    while (running && (duration_sec == 0 || get_usec() < end_time)) {
         uint64_t now = get_usec();
 
-        // Send request
-        proc_req_t req = {
-            .client_id = CLIENT_ID,
-            .cmd_seqno = seqno++,
-            .cmd = cmd
-        };
+        // 1. Send if it's time
+        if (now >= next_send_time) {
+            uint32_t idx = seqno % MAX_IN_FLIGHT;
+            
+            // If slot is occupied by a very old request that never timed out
+            if (in_flight_table[idx].active) {
+                if (now - in_flight_table[idx].sent_usec >= TIMEOUT_USEC) {
+                    // Log timeout before overwriting
+                    if (log_file) {
+                        fprintf(log_file, "%u,%llu,%llu,%.1f,%s,%u,%d,%d,0\n",
+                                in_flight_table[idx].seqno, in_flight_table[idx].sent_usec, 0ULL, 0.0, "TIMEOUT", in_flight_table[idx].target_node, -1, -1);
+                        fflush(log_file);
+                    }
+                    record_count++;
+                    in_flight_table[idx].active = 0;
+                }
+            }
 
-        pkt_t pkt;
-        if (rpc_pack_proc_req(&pkt, current_leader, CLIENT_ID, &req) != 0) {
-            //fprintf(stderr, "Failed to pack request %u\n", req.cmd_seqno);
-            usleep(interval_ms * 1000);
-            continue;
-        }
-
-        if (t.send(&pkt, t.context) != 0) {
-            //fprintf(stderr, "Failed to send packet %u to node %u\n", req.cmd_seqno, current_leader);
-            usleep(interval_ms * 1000);
-            continue;
-        }
-
-        // Record send time
-        uint64_t sent_usec = now;
-        uint64_t received_usec = 0;
-        int success = 0;
-
-        // Wait for response with timeout
-        pkt_t res_pkt;
-        int ret = t.receive(&res_pkt, 5000, t.context); // 5 second timeout
-        uint64_t recv_time = get_usec();
-
-        char *result = "UKNOWN";
-        uint32_t leader_hint = UINT32_MAX;
-        int term = -1;
-
-        if (ret > 0 && res_pkt.header.code == RPC_RESP_PROC) {
-            proc_res_t res;
-            if (rpc_unpack_proc_res(&res_pkt, &res) == 0) {
-                term = res.term;
-                leader_hint = res.leader_hint;
-                if (res.success) {
-                    received_usec = recv_time;
-                    result = "OK";
-                    printf("SUCCESS: Request %u completed in %.1f ms\n",
-                           req.cmd_seqno,
-                           (recv_time - now) / 1000.0);
+            if (!in_flight_table[idx].active) {
+                proc_req_t req = { .client_id = CLIENT_ID, .cmd_seqno = seqno, .cmd = cmd };
+                pkt_t pkt;
+                int sent = 0;
+                rpc_pack_proc_req(&pkt, current_leader, CLIENT_ID, &req);
+                if (t.send(&pkt, t.context) == 0) {
+                    sent = 1;
                 } else {
-                    printf("REDIRECT: Request %u redirected to leader %u\n",
-                           req.cmd_seqno, res.leader_hint);
-                    result = "NOT_LEADER";
-                    if (res.leader_hint < num_peers) {
-                        current_leader = res.leader_hint;
+                    // Send failed, probably current_leader crashed.
+                    // Pick a random OTHER node.
+                    current_leader = (current_leader + 1 + (rand() % (num_peers - 1))) % num_peers;
+                    printf("SEND FAILURE: Retrying with node %u\n", current_leader);
+                    rpc_pack_proc_req(&pkt, current_leader, CLIENT_ID, &req);
+                    if (t.send(&pkt, t.context) == 0) {
+                        sent = 1;
                     }
                 }
-            } else {
-                printf("ERROR: Failed to unpack response for request %u\n", req.cmd_seqno);
+
+                if (sent) {
+                    in_flight_table[idx].seqno = seqno;
+                    in_flight_table[idx].sent_usec = now;
+                    in_flight_table[idx].target_node = current_leader;
+                    in_flight_table[idx].active = 1;
+                    seqno++;
+                }
             }
-        } else {
-            result = "TIMEOUT";
-            printf("TIMEOUT: Request %u timed out\n", req.cmd_seqno);
+            
+            next_send_time += interval_us;
+            if (next_send_time < now) next_send_time = now + interval_us;
         }
 
-        // Persist this request record to disk immediately so we don't lose it on crash.
-        if (log_file) {
-            double latency_ms = 0.0;
-            if (success && received_usec > 0) {
-                latency_ms = (received_usec - sent_usec) / 1000.0;
-            }
-            // SeqNo,Sent(usec),Received(usec),Latency(ms),Result,TargetNode,LeaderHint,Term
-            fprintf(log_file, "%u,%llu,%llu,%.1f,%s,%d,%d,%d\n",
-                    req.cmd_seqno,
-                    sent_usec,
-                    received_usec,
-                    latency_ms,
-                    result,
-                    pkt.header.dst,
-                    leader_hint,
-                    term
-            );
-            fflush(log_file);
-        }
+        // 2. Receive responses
+        pkt_t res_pkt;
+        while (t.receive(&res_pkt, 0, t.context) > 0) {
+            if (res_pkt.header.code == RPC_RESP_PROC) {
+                proc_res_t res;
+                if (rpc_unpack_proc_res(&res_pkt, &res) == 0) {
+                    uint32_t idx = res.cmd_seqno % MAX_IN_FLIGHT;
+                    if (in_flight_table[idx].active && in_flight_table[idx].seqno == res.cmd_seqno) {
+                        uint64_t recv_time = get_usec();
+                        char *result = res.success ? "OK" : "NOT_LEADER";
+                        double latency_ms = (recv_time - in_flight_table[idx].sent_usec) / 1000.0;
+                        
+                        // Update baseline if early in the run
+                        if (res.success && baseline_samples < 50) {
+                            baseline_ms = (baseline_ms * baseline_samples + latency_ms) / (baseline_samples + 1);
+                            baseline_samples++;
+                        }
 
-        // Update in-memory counters
-        record_count++;
-        if (success) {
-            successful++;
-            total_latency_us += (received_usec - sent_usec);
+                        int is_prompt = 0;
+                        if (res.success) {
+                            // If we have a baseline, consider prompt if within 50% or 50ms (whichever is larger)
+                            double threshold = (baseline_ms * 1.5 > baseline_ms + 50) ? baseline_ms * 1.5 : baseline_ms + 50;
+                            if (baseline_samples < 10 || latency_ms <= threshold) {
+                                is_prompt = 1;
+                            }
+                        }
 
-            // Reservoir sampling for percentile estimation
-            if (sample_count < sample_size) {
-                latency_sample[sample_count++] = (received_usec - sent_usec) / 1000.0;
-            } else {
-                // Randomly replace existing sample with decreasing probability
-                uint32_t r = (uint32_t)(rand() % record_count);
-                if (r < sample_size) {
-                    latency_sample[r] = (received_usec - sent_usec) / 1000.0;
+                        if (log_file) {
+                            fprintf(log_file, "%u,%llu,%llu,%.1f,%s,%u,%u,%u,%d\n",
+                                    res.cmd_seqno, in_flight_table[idx].sent_usec, recv_time, latency_ms, result, in_flight_table[idx].target_node, res.leader_hint, res.term, is_prompt);
+                            fflush(log_file);
+                        }
+                        
+                        record_count++;
+                        if (res.success) {
+                            successful++;
+                            total_latency_us += (recv_time - in_flight_table[idx].sent_usec);
+                            
+                            // Reservoir sampling
+                            if (sample_count < sample_size) {
+                                latency_sample[sample_count++] = (recv_time - in_flight_table[idx].sent_usec) / 1000.0;
+                            } else {
+                                uint32_t r = (uint32_t)(rand() % record_count);
+                                if (r < sample_size) {
+                                    latency_sample[r] = (recv_time - in_flight_table[idx].sent_usec) / 1000.0;
+                                }
+                            }
+                            printf("SUCCESS: Request %u completed in %.1f ms%s\n", 
+                                   res.cmd_seqno, latency_ms, is_prompt ? "" : " (QUEUED)");
+                        } else {
+                            printf("REDIRECT: Request %u redirected to leader %u\n", res.cmd_seqno, res.leader_hint);
+                            if (res.leader_hint < num_peers) {
+                                current_leader = res.leader_hint;
+                            }
+                        }
+                        in_flight_table[idx].active = 0;
+                    }
                 }
             }
         }
 
-        // Wait for next interval
-        uint64_t next_send = now + (interval_ms * 1000ULL);
-        while (get_usec() < next_send && running) {
-            usleep(1000); // Sleep 1ms at a time to check for signals
+        // 3. Periodic timeout check
+        if (now - last_timeout_check >= 100000) {
+            for (int i = 0; i < MAX_IN_FLIGHT; i++) {
+                if (in_flight_table[i].active && (now - in_flight_table[i].sent_usec >= TIMEOUT_USEC)) {
+                    if (log_file) {
+                        fprintf(log_file, "%u,%llu,%llu,%.1f,%s,%u,%d,%d,0\n",
+                                in_flight_table[i].seqno, in_flight_table[i].sent_usec, 0ULL, 0.0, "TIMEOUT", in_flight_table[i].target_node, -1, -1);
+                        fflush(log_file);
+                    }
+                    printf("TIMEOUT: Request %u timed out\n", in_flight_table[i].seqno);
+                    record_count++;
+                    in_flight_table[i].active = 0;
+                }
+            }
+            last_timeout_check = now;
         }
+
+        usleep(100);
     }
 
     // Print summary
