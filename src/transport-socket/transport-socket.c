@@ -18,6 +18,7 @@ typedef struct {
     uint32_t num_nodes;
     char **peer_addrs;
     int listen_fd;
+    uint32_t connect_timeout_ms;
     
     int *peer_fds; 
     int client_fds[MAX_CONNECTIONS];
@@ -104,13 +105,12 @@ static int socket_send(const pkt_t *pkt, void *ctx) {
     struct timeval tv;
     int max_fd;
 
-    const uint32_t connect_timeout_ms = 5000;
     uint64_t connect_start = get_usec();
 
     // We loop here because we might accept new connections while waiting to send
     while (1) {
         uint64_t now = get_usec();
-        if (now - connect_start >= (uint64_t)connect_timeout_ms * 1000) {
+        if (now - connect_start >= (uint64_t)sctx->connect_timeout_ms * 1000) {
             // Connection is taking too long
             return -1;
         }
@@ -309,10 +309,11 @@ static int socket_receive(pkt_t *pkt, const uint32_t timeout_ms, void *ctx) {
     }
 }
 
-transport_t transport_socket_init(uint32_t id, const char **peers, uint32_t num_peers) {
+transport_t transport_socket_init(uint32_t id, const char **peers, uint32_t num_peers, uint32_t connect_timeout_ms) {
     socket_context_t *ctx = malloc(sizeof(socket_context_t));
     ctx->my_id = id;
     ctx->num_nodes = num_peers;
+    ctx->connect_timeout_ms = connect_timeout_ms;
     ctx->peer_addrs = malloc(sizeof(char *) * num_peers);
     for (uint32_t i = 0; i < num_peers; i++) {
         ctx->peer_addrs[i] = strdup(peers[i]);

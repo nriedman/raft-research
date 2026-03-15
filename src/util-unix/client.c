@@ -34,7 +34,7 @@ int main(int argc, char **argv) {
     for (uint32_t i = 0; i < num_peers; i++) all_addrs[i] = peers[i];
     all_addrs[num_peers] = client_addr;
 
-    transport_t t = transport_socket_init(num_peers, (const char **)all_addrs, num_peers + 1);
+    transport_t t = transport_socket_init(num_peers, (const char **)all_addrs, num_peers + 1, 5000);
 
     srand(time(NULL));
     uint32_t target_node = rand() % num_peers;
