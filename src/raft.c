@@ -228,7 +228,8 @@ static void apply_to_state_machine(raft_node_t *node) {
                         .client_id = entry.client_id,
                         .cmd_seqno = entry.cmd_seqno,
                         .success = 1,
-                        .leader_hint = node->config.id
+                        .leader_hint = node->config.id,
+                        .term = node->hard_state.get(PF_CURRENT_TERM, node->hard_state.context)
                     };
                     send_proc_response(node, entry.client_id, &resp);
                     node->outstanding_reqs[i].active = 0;
@@ -446,7 +447,8 @@ static void handle_proc_request(raft_node_t *node, proc_req_t req, uint32_t src_
             .client_id = req.client_id,
             .cmd_seqno = req.cmd_seqno,
             .success = 0,
-            .leader_hint = node->leader_id
+            .leader_hint = node->leader_id,
+            .term = node->hard_state.get(PF_CURRENT_TERM, node->hard_state.context)
         };
         send_proc_response(node, src_id, &resp);
         return;
@@ -650,8 +652,8 @@ static void set_fault_detect_timer(raft_node_t *node) {
 
 static void set_election_timer(raft_node_t *node) {
     node->timer.duration_usec = random_timeout_usec(
-        node->config.timeout_lb_ms * 1000,
-        node->config.timeout_ub_ms * 1000
+        HEARTBEAT_INTERVAL_USEC * 3,
+        HEARTBEAT_INTERVAL_USEC * 5
     );
     //fprintf(stderr, "[Node %d] Set election timer to %llu usec\n", node->config.id, node->timer.duration_usec);
     timer_reset(&node->timer);
