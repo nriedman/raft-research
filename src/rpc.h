@@ -3,7 +3,7 @@
 #include "transport.h"
 #include "log-entry.h"
 
-#define MAX_APPEND_ENTRIES_N 32
+#define MAX_APPEND_ENTRIES_N 8
 
 // rpc codes we know how to intepret
 enum {
