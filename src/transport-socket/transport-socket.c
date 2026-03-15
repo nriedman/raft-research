@@ -205,8 +205,7 @@ static int socket_receive(pkt_t *pkt, const uint32_t timeout_ms, void *ctx) {
 
     while (1) {
         uint64_t now = get_usec();
-        if (now >= deadline) return 0;
-        uint32_t remaining_ms = (uint32_t)((deadline - now) / 1000);
+        uint64_t remaining_us = (now < deadline) ? (deadline - now) : 0;
 
         fd_set read_fds;
         int max_fd = sctx->listen_fd;
@@ -219,8 +218,8 @@ static int socket_receive(pkt_t *pkt, const uint32_t timeout_ms, void *ctx) {
         }
         
         struct timeval timeout;
-        timeout.tv_sec = remaining_ms / 1000;
-        timeout.tv_usec = (remaining_ms % 1000) * 1000;
+        timeout.tv_sec = remaining_us / 1000000ULL;
+        timeout.tv_usec = remaining_us % 1000000ULL;
         
         int ret = select(max_fd + 1, &read_fds, NULL, NULL, &timeout);
         if (ret == 0) return 0;
