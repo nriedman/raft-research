@@ -90,7 +90,7 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    transport_t transport = transport_socket_init(id, (const char **)peers, num_peers);
+    transport_t transport = transport_socket_init(id, (const char **)peers, num_peers, 5000);
     for (uint32_t i = 0; i < num_peers; i++) free(peers[i]);
     free(peers_copy); 
 
