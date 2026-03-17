@@ -216,7 +216,7 @@ static void apply_to_state_machine(raft_node_t *node) {
             continue;
         }
 
-        printf("[Node %d] Applying entry %d (cmd %d) to state machine\n", node->config.id, (int)node->last_applied, entry.cmd);
+        // printf("[Node %d] Applying entry %d (cmd %d) to state machine\n", node->config.id, (int)node->last_applied, entry.cmd);
         
         if (node->role == LEADER) {
             for (int i = 0; i < MAX_OUTSTANDING_REQUESTS; i++) {
@@ -232,6 +232,7 @@ static void apply_to_state_machine(raft_node_t *node) {
                         .term = node->hard_state.get(PF_CURRENT_TERM, node->hard_state.context)
                     };
                     send_proc_response(node, entry.client_id, &resp);
+                    printf("[Node %d] Client request %d replicated successfully\n", node->config.id, entry.cmd_seqno);
                     node->outstanding_reqs[i].active = 0;
                     break;
                 }
