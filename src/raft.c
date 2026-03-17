@@ -324,7 +324,7 @@ static void handle_append_entries_request(raft_node_t *node, append_entries_req_
 static void handle_append_entries_response(raft_node_t *node, uint32_t src_id, append_entries_res_t resp) {
     uint32_t cur_term = (uint32_t)node->hard_state.get(PF_CURRENT_TERM, node->hard_state.context);
     if (resp.term > cur_term) {
-        //fprintf(stderr, "[Node %d] Found higher term %d in append response, becoming follower\n", node->config.id, resp.term);
+        printf("[Node %d] Found higher term %d in append response, becoming follower\n", node->config.id, resp.term);
         become_follower(node, resp.term, src_id);
         return;
     }
@@ -405,7 +405,7 @@ static void handle_request_vote_request(raft_node_t *node, uint32_t src_id, cons
     } else {
         vote_granted = 1;
         node->hard_state.set(PF_VOTED_FOR, req.candidate_id, node->hard_state.context);
-        //fprintf(stderr, "[Node %d] Granting vote to Node %d for term %d\n", node->config.id, req.candidate_id, cur_term);
+        printf("[Node %d] Granting vote to Node %d for term %d\n", node->config.id, req.candidate_id, cur_term);
         set_election_timer(node);
     }
 
@@ -435,7 +435,7 @@ static void handle_request_vote_response(raft_node_t *node, uint32_t src_id, req
                 // node->config.id, src_id, node->votes_received, node->config.num_nodes);
             
         if (node->votes_received > node->config.num_nodes / 2) {
-            //fprintf(stderr, "[Node %u] Majority reached! Becoming leader for term %d\n", node->config.id, cur_term);
+            printf("[Node %u] Majority reached! Becoming leader for term %d\n", node->config.id, cur_term);
             become_leader(node);
         }
     } else {
@@ -572,7 +572,7 @@ static void start_election(raft_node_t *node) {
     node->hard_state.set(PF_VOTED_FOR, node->config.id, node->hard_state.context);       
     node->votes_received = 1;
 
-    //fprintf(stderr, "[Node %d] Starting election for term %d\n", node->config.id, (int)cur_term + 1);
+    printf("[Node %d] Starting election for term %d\n", node->config.id, (int)cur_term + 1);
 
     set_election_timer(node);
     broadcast_request_vote(node);
