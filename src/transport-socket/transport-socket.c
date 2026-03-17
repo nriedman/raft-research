@@ -155,7 +155,7 @@ static int socket_send(const pkt_t *pkt, void *ctx) {
     socklen_t len = sizeof(error);
     if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &error, &len) < 0 || error != 0) {
         if (error != 0) errno = error;
-        perror("socket error in socket_send");
+        // perror("socket error in socket_send");
         goto err_close;
     }
 
