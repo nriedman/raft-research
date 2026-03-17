@@ -6,7 +6,7 @@ An implementation of the Raft consensus algorithm in C, optimized for geo-replic
 
 The project provides a complete Raft implementation with:
 - **`raft-node`**: A Raft node that manages leader elections, log replication, state machine application, and persistence.
-- **`raft-client`**: A benchmarking client (`simple-client`) that sends commands to the cluster, tracks latencies, and logs results to CSV for analysis.
+- **`raft-client`**: A benchmarking client (`benchmark-client`) that sends commands to the cluster, tracks latencies, and logs results to CSV for analysis.
 
 ## Key Features
 
@@ -66,7 +66,7 @@ A cluster node is started with the following command:
 
 ### Using the Client
 
-The `raft-client` (built from `src/simple-client.c`) is used to benchmark the cluster:
+The `raft-client` (built from `src/benchmark-client.c`) is used to benchmark the cluster:
 
 ```bash
 ./raft-client <peers> <client_addr> [throttle_ms]
@@ -81,7 +81,7 @@ Example:
 ```bash
 ./raft-client 127.0.0.1:8000,127.0.0.1:8001,127.0.0.1:8002 127.0.0.1:9000 100
 ```
-The client will log all request latencies and results to `simple_client.csv`.
+The client will log all request latencies and results to `client.csv`.
 
 ## Geo-Replication & Benchmarking
 
@@ -97,7 +97,7 @@ Each node logs its internal state transitions to a CSV file named `node_<id>_<sc
 - `src/transport-socket/`: TCP socket transport layer.
 - `src/persist-unix/`: Disk-based persistence (log and state fields).
 - `src/util-unix/node.c`: Entry point for `raft-node`.
-- `src/simple-client.c`: Entry point for `raft-client`.
+- `src/util-unix/benchmark-client.c`: Entry point for `raft-client`.
 - `src/rpc.c`: RPC packet serialization and handling.
 
 ## Acknowledgments
