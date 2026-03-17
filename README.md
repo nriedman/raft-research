@@ -1,6 +1,6 @@
 # Raft Consensus Algorithm in C
 
-A practical implementation of the Raft consensus algorithm in C, utilizing socket-based transport for real network communication between nodes.
+An implementation of the Raft consensus algorithm in C, utilizing socket-based transport for real network communication between nodes. Built as part of [this research project](https://www.scs.stanford.edu/26wi-cs244c/proj/georeplicated_raft.pdf).
 
 ## Overview
 
