@@ -1,19 +1,19 @@
-# Raft Consensus Algorithm in C
+# Geo-Replicated Raft Consensus Algorithm in C
 
-An implementation of the Raft consensus algorithm in C, utilizing socket-based transport for real network communication between nodes. Built as part of [this research project](https://www.scs.stanford.edu/26wi-cs244c/proj/georeplicated_raft.pdf).
+An implementation of the Raft consensus algorithm in C, optimized for geo-replicated environments through adaptive failure detection. This project was developed as part of a [research study](https://www.scs.stanford.edu/26wi-cs244c/proj/georeplicated_raft.pdf) on the performance of Raft across multiple geographical regions.
 
 ## Overview
 
-The project consists of:
-- **`raft-node`**: An individual Raft node that manages leader elections, log replication, and state persistence. Nodes communicate over TCP sockets.
-- **`raft-client`**: A simple client to send commands to the Raft cluster.
+The project provides a complete Raft implementation with:
+- **`raft-node`**: A Raft node that manages leader elections, log replication, state machine application, and persistence.
+- **`raft-client`**: A benchmarking client (`simple-client`) that sends commands to the cluster, tracks latencies, and logs results to CSV for analysis.
 
-## Features
+## Key Features
 
-- **Socket Transport**: Real TCP communication between nodes using a custom packet format.
-- **Leader Election**: Full implementation of the Raft election safety properties.
-- **Persistence**: Nodes persist their current term, voted-for status, and log entries to disk (`raft_<id>.state`, `raft_<id>.log`).
-- **Log Replication**: Leaders replicate log entries to a majority of followers before committing.
+- **Socket Transport**: TCP communication between nodes using a custom packet format.
+- **Persistence**: Reliable persistence of term, vote, and log entries (`raft_<id>.state`, `raft_<id>.log`).
+- **Phi Accrual Failure Detector**: An adaptive failure detection mechanism (instead of fixed timeouts) that uses heartbeats to build a probability distribution of expected arrival times, making it resilient to the high variance of geo-replicated networks.
+- **Benchmarking & Analysis**: Built-in instrumentation for logging state transitions and RPC latencies, with automated scripts for analyzing cluster behavior under various network conditions.
 
 ## Getting Started
 
@@ -32,73 +32,73 @@ make
 
 ### Running a Cluster
 
-To start a cluster, you first need to know the IP Address and Port (`<ip:port>`) of each node. Then, a Node `<n>` can be started by executing the following command:
+A cluster node is started with the following command:
 
 ```bash
-./raft-node --id <n> --peers <ip:port>,<ip:port>,...,<ip:port>
+./raft-node --id <n> --peers <ip:port>,... [options]
 ```
 
-Here, `<n>` serves as the id of the node being started, and, if there are `N` nodes, `0 <= n < N`. There must also be `N` peer `<ip:port>` addresses provided in `--peers`.
+#### Core Arguments:
+- `--id <n>`: The zero-indexed identifier for this node.
+- `--peers <list>`: A comma-separated list of "IP:PORT" for all nodes in the cluster.
 
-To stop execution of a given node, use `ctrl-c`. A node can be restarted at any time after stopping by using the same command as above.
+#### Failure Detection Options:
+- **Randomized Timeout (Default)**: `--t <lb> <ub>`
+  - Uses a fixed random timeout between `lb` and `ub` milliseconds.
+  - Example: `--t 1000 2000`
+- **Phi Accrual**: `--a <threshold> <window> <ramp>`
+  - Uses the Phi Accrual failure detector.
+  - `threshold`: The $\phi$ value at which to trigger an election (e.g., `1.0` to `3.0`).
+  - `window`: Number of samples to keep in the moving window (e.g., `32`).
+  - `ramp`: Number of initial heartbeats before accrual logic kicks in (defaults to randomized timeout until then).
 
-The command for sending a client request to the cluster is similar:
+#### Testing Options:
+- `--crash_after_heartbeats <n>`: Automatically stops the node after receiving `n` heartbeats to simulate failures.
 
-```bash
-./raft-client <cmd> <ip:port>,<ip:port>,...,<ip:port>
-```
+### Example: Local 3-Node Cluster
 
-The list of addresses provided must be the same as above, in the same order. The client will request the given 4-byte, unsigned integer `<cmd>` be appended to the Raft log, and wait for a reply.
+**Terminal 0:** `./raft-node --id 0 --peers 127.0.0.1:8000,127.0.0.1:8001,127.0.0.1:8002 --a 1.0 32 8`
 
-### Example: Local Cluster
+**Terminal 1:** `./raft-node --id 1 --peers 127.0.0.1:8000,127.0.0.1:8001,127.0.0.1:8002 --a 1.0 32 8`
 
-To run a cluster of 3 nodes on your local machine, open three separate terminals and execute the following commands:
+**Terminal 2:** `./raft-node --id 2 --peers 127.0.0.1:8000,127.0.0.1:8001,127.0.0.1:8002 --a 1.0 32 8`
 
-**Terminal 0:**
-```bash
-./raft-node --id 0 --peers 127.0.0.1:8000,127.0.0.1:8001,127.0.0.1:8002
-```
-
-**Terminal 1:**
-```bash
-./raft-node --id 1 --peers 127.0.0.1:8000,127.0.0.1:8001,127.0.0.1:8002
-```
-
-**Terminal 2:**
-```bash
-./raft-node --id 2 --peers 127.0.0.1:8000,127.0.0.1:8001,127.0.0.1:8002
-```
-
-Each node will start, load any existing state from its local files, and begin the election process.
 
 ### Using the Client
 
-To send a command (e.g., the value `42`) to the cluster:
+The `raft-client` (built from `src/simple-client.c`) is used to benchmark the cluster:
 
 ```bash
-./raft-client 42 127.0.0.1:8000,127.0.0.1:8001,127.0.0.1:8002
+./raft-client <peers> <client_addr> [throttle_ms]
 ```
 
-The client will attempt to contact a random node, follow leader hints if necessary, and report if the command was successfully committed.
+- `peers`: Comma-separated list of cluster nodes.
+- `client_addr`: The address the client should bind to for receiving responses.
+- `throttle_ms`: Optional delay between requests.
+
+Example:
+
+```bash
+./raft-client 127.0.0.1:8000,127.0.0.1:8001,127.0.0.1:8002 127.0.0.1:9000 100
+```
+The client will log all request latencies and results to `simple_client.csv`.
+
+## Geo-Replication & Benchmarking
+
+- `raft-node-wrapper.sh`: A shell script to ensure nodes stay alive during long-running experiments.
+- `analysis/`: Contains tools for analyzing performance traces and detecting crash recovery times.
+
+Each node logs its internal state transitions to a CSV file named `node_<id>_<scheme>_...csv` for offline analysis.
 
 ## Project Structure
 
-- `src/raft.c`: Core Raft state machine and logic.
-- `src/transport-socket/`: TCP socket implementation of the transport layer.
-- `src/persist-unix/`: Disk-based persistence for logs and metadata.
-- `src/util-unix/node.c`: Entry point for the Raft node executable.
-- `src/util-unix/client.c`: Entry point for the Raft client executable.
-- `src/rpc.c`: RPC packet serialization.
-
-## Cleanup
-
-To remove compiled objects and executables:
-
-```bash
-make clean
-```
-
-This will also reset the cluster state (delete all logs and state files):
+- `src/raft.c`: Core Raft state machine and consensus logic.
+- `src/accrual.c`: Phi Accrual failure detector implementation.
+- `src/transport-socket/`: TCP socket transport layer.
+- `src/persist-unix/`: Disk-based persistence (log and state fields).
+- `src/util-unix/node.c`: Entry point for `raft-node`.
+- `src/simple-client.c`: Entry point for `raft-client`.
+- `src/rpc.c`: RPC packet serialization and handling.
 
 ## Acknowledgments
 
@@ -115,9 +115,11 @@ Additionally, AI tools (Gemini CLI, Copilot) were used to develop the following 
 - Extend debug messages for higher fidelity runtime logging;
 - Compose the Makefile for ease of compilation over changing codebase structure;
 - Implement a socket-based transport layer (see `srd/transport-socket/*`);
-- Implement a first-draft client functionality in the `srd/util-unix/client.c` source file;
+- Implement an example client functionality in `srd/util-unix/client.c`;
 - Fill in the method bodies in `persist-unix/log.c` and `persist-unix/persistent-fields.c`;
 - Refactor the `apply_to_state_machine` method in `src/raft.c`;
 - Add outstanding client request caching in `src/raft.*`;
+- Create and style the plots in `analysis/*.ipynb`;
+- 
 
-Any commits marked with `[AI]` were developed using AI coding tools. Where applicable, inline comments document attributions for code that came from external sources not discussed here.
+Beyond this list, any commits marked with `[AI]` were developed using AI coding tools. Where applicable, inline comments document attributions for code that came from external sources not discussed here.

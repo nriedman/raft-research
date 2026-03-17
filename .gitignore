@@ -17,5 +17,8 @@ __pycache__
 # Ignore compilation artifacts
 objs/
 
+# Ignore my hosts config
+hosts*
+
 # Ignore MacOS artifact .DS_store
 .DS_store

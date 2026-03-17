@@ -62,19 +62,19 @@ int main(int argc, char **argv) {
     signal(SIGTERM, signal_handler);
 
     // Open log file early so data is saved incrementally.
-    FILE *log_file = fopen("simple_client.csv", "w");
+    FILE *log_file = fopen("client.csv", "w");
     if (log_file) {
         fprintf(log_file, "SeqNo,Sent(usec),Received(usec),Latency(ms),Result,TargetNode,LeaderHint,Term\n");
         fflush(log_file);
     } else {
-        fprintf(stderr, "Warning: failed to open simple_client.csv for writing\n");
+        fprintf(stderr, "Warning: failed to open client.csv for writing\n");
     }
 
     printf("Starting simple client (CLIENT_ID=%d)...\n", CLIENT_ID);
     if (throttle_ms > 0) {
         printf("Throttle: %u ms\n", throttle_ms);
     }
-    printf("Logging to simple_client.csv\n");
+    printf("Logging to client.csv\n");
 
     srand(time(NULL) ^ getpid());
     uint32_t seqno = (uint32_t)time(NULL);
@@ -189,11 +189,11 @@ int main(int argc, char **argv) {
         }
     }
 
-    printf("\nExiting simple client...\n");
+    printf("\nExiting client...\n");
 
     if (log_file) {
         fclose(log_file);
-        printf("Log written to simple_client.csv\n");
+        printf("Log written to client.csv\n");
     }
 
     // Cleanup

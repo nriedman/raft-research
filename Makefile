@@ -14,19 +14,12 @@ NODE_SRCS := src/util-unix/node.c \
              src/persist-unix/persistent-fields.c
 NODE_OBJS := $(patsubst src/%.c,objs/%.o,$(NODE_SRCS))
 
-CLIENT_SRCS := src/simple-client.c \
+CLIENT_SRCS := src/util-unix/benchmark-client.c \
                src/util-unix/util.c \
                src/transport-socket/transport-socket.c \
                src/rpc.c \
                src/log-entry.c
 CLIENT_OBJS := $(patsubst src/%.c,objs/%.o,$(CLIENT_SRCS))
-
-# BENCHMARK_CLIENT_SRCS := src/benchmark-client.c \
-#                         src/util-unix/util.c \
-#                         src/transport-socket/transport-socket.c \
-#                         src/rpc.c \
-#                         src/log-entry.c
-# BENCHMARK_CLIENT_OBJS := $(patsubst src/%.c,objs/%.o,$(BENCHMARK_CLIENT_SRCS))
 
 # Executables in project root
 all: raft-node raft-client
