@@ -36,12 +36,15 @@ typedef struct {
     uint32_t accrual_ramp_size;
     uint32_t timeout_lb_ms;
     uint32_t timeout_ub_ms;
+    int crash_after_h;
 } raft_config_t;
 
 typedef struct {
     raft_config_t config;
     raft_role_t role;
     transport_t transport;
+
+    int heartbeat_count;       // init to 0, reset to 0 on election to leader
 
     // "persistant" state (updated before responding to RPCs)
 
