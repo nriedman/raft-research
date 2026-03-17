@@ -114,12 +114,12 @@ Additionally, AI tools (Gemini CLI, Copilot) were used to develop the following 
 - `README.md` description to introduce project and describe usage;
 - Extend debug messages for higher fidelity runtime logging;
 - Compose the Makefile for ease of compilation over changing codebase structure;
-- Implement a socket-based transport layer (see `srd/transport-socket/*`);
-- Implement an example client functionality in `srd/util-unix/client.c`;
+- Implement a socket-based transport layer (see `src/transport-socket/*`);
+- Implement example client functionality in `src/util-unix/client.c`;
+- Extend client functionality to steadily send requests in `src/util-unix/benchmark-client.c`;
 - Fill in the method bodies in `persist-unix/log.c` and `persist-unix/persistent-fields.c`;
 - Refactor the `apply_to_state_machine` method in `src/raft.c`;
 - Add outstanding client request caching in `src/raft.*`;
-- Create and style the plots in `analysis/*.ipynb`;
-- 
+- Create and style plots in `analysis/*.ipynb`.
 
 Beyond this list, any commits marked with `[AI]` were developed using AI coding tools. Where applicable, inline comments document attributions for code that came from external sources not discussed here.
