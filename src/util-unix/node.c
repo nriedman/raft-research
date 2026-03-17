@@ -143,6 +143,13 @@ int main(int argc, char **argv) {
 
     //fprintf(stderr, "[Node %d] Starting with %d peers...\n", node->config.id, num_peers);
 
+    // Start election timer
+    node->timer.duration_usec = random_timeout_usec(
+        config.timeout_lb_ms,
+        config.timeout_ub_ms
+    );
+    timer_reset(&node->timer);
+
     // blocks until done running
     raft_run(node);
 

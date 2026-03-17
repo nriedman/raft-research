@@ -37,13 +37,6 @@ raft_node_t *raft_create(
     nd->match_index = match_index;
 
     nd->running = 1;
-
-    // Start election timer
-    nd->timer.duration_usec = random_timeout_usec(
-        config.timeout_lb_ms,
-        config.timeout_ub_ms
-    );
-    timer_reset(&nd->timer);
     
     return nd;
 }
