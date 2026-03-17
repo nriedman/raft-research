@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-RESTART_DELAY=5
+RESTART_DELAY=10
 
 while true; do
 
