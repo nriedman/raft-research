@@ -216,7 +216,7 @@ static void apply_to_state_machine(raft_node_t *node) {
             continue;
         }
 
-        //fprintf(stderr, "[Node %d] Applying entry %d (cmd %d) to state machine\n", node->config.id, (int)node->last_applied, entry.cmd);
+        printf("[Node %d] Applying entry %d (cmd %d) to state machine\n", node->config.id, (int)node->last_applied, entry.cmd);
         
         if (node->role == LEADER) {
             for (int i = 0; i < MAX_OUTSTANDING_REQUESTS; i++) {
